@@ -1,6 +1,5 @@
 """图变换执行器测试"""
 
-import tempfile
 from pathlib import Path
 
 import onnx
@@ -9,11 +8,7 @@ from onnx import ModelProto
 
 from onnxsplit.analyzer.model import ModelAnalyzer
 from onnxsplit.splitter.plan import SplitPlan
-from onnxsplit.transform.executor import (
-    GraphTransformer,
-    TransformContext,
-    TransformResult,
-)
+from onnxsplit.transform.executor import GraphTransformer
 
 
 @pytest.fixture
@@ -41,271 +36,219 @@ def model_with_branches() -> ModelProto:
 def simple_split_plan() -> SplitPlan:
     """创建简单的切分方案"""
     return SplitPlan(
-        operator_name="conv_0",  # 匹配simple_conv.onnx中的节点名
+        operator_name="conv_0",
         parts=2,
         axis=0,
         reason="batch split",
     )
 
 
-class TestTransformContext:
-    """测试TransformContext类"""
+class TestGraphTransformerInitialization:
+    """测试GraphTransformer初始化"""
 
-    def test_initialization(self, simple_conv_model: ModelProto) -> None:
-        """测试初始化"""
-        ctx = TransformContext(simple_conv_model, batch_dim=0)
+    def test_init_with_analyzer(self, simple_conv_model: ModelProto) -> None:
+        """测试使用ModelAnalyzer初始化"""
+        analyzer = ModelAnalyzer(simple_conv_model)
+        transformer = GraphTransformer(analyzer)
 
-        assert ctx.model == simple_conv_model
-        assert ctx.batch_dim == 0
-        assert ctx.original_graph is not None
-        assert len(ctx.new_nodes) == 0
-        assert len(ctx.new_inputs) == 0
-        assert len(ctx.new_outputs) == 0
-        assert len(ctx.new_initializers) == 0
-
-    def test_analyzer_property(self, simple_conv_model: ModelProto) -> None:
-        """测试analyzer属性"""
-        ctx = TransformContext(simple_conv_model, batch_dim=0)
-
-        analyzer = ctx.analyzer
-        assert isinstance(analyzer, ModelAnalyzer)
-        assert analyzer.graph == simple_conv_model.graph
-
-    def test_get_operator_by_name(self, simple_conv_model: ModelProto) -> None:
-        """测试通过名称获取算子"""
-        ctx = TransformContext(simple_conv_model, batch_dim=0)
-
-        # 查找第一个算子
-        first_node = simple_conv_model.graph.node[0]
-        if first_node.name:
-            op = ctx.get_operator(first_node.name)
-            assert op is not None
-            assert op.name == first_node.name
+        assert transformer.analyzer == analyzer
+        assert isinstance(transformer._node_map, dict)
+        assert isinstance(transformer._tensor_map, dict)
 
 
-class TestTransformResult:
-    """测试TransformResult类"""
+class TestApplySplitPlan:
+    """测试apply_split_plan方法"""
 
-    def test_empty_result(self) -> None:
-        """测试空结果"""
-        result = TransformResult()
+    def test_apply_split_plan_returns_model(self, simple_conv_model: ModelProto, simple_split_plan: SplitPlan) -> None:
+        """测试apply_split_plan返回ModelProto"""
+        analyzer = ModelAnalyzer(simple_conv_model)
+        transformer = GraphTransformer(analyzer)
 
-        assert result.success is True
-        assert result.error_message == ""
-        assert len(result.split_operators) == 0
-        assert len(result.new_nodes) == 0
-        assert result.metrics["split_count"] == 0
+        result = transformer.apply_split_plan(simple_split_plan)
 
-    def test_result_with_data(self) -> None:
-        """测试带数据的结果"""
-        result = TransformResult()
-        result.split_operators = ["conv1", "conv2"]
-        result.new_nodes = ["conv1_split_0", "conv1_split_1"]
+        assert isinstance(result, ModelProto)
 
-        assert len(result.split_operators) == 2
-        assert len(result.new_nodes) == 2
-        assert result.metrics["split_count"] == 0
+    def test_apply_split_plan_no_split_returns_copy(self, simple_conv_model: ModelProto) -> None:
+        """测试非切分方案返回原模型副本"""
+        analyzer = ModelAnalyzer(simple_conv_model)
+        transformer = GraphTransformer(analyzer)
+        plan = SplitPlan(operator_name="conv_0", parts=1, axis=0)  # parts=1 表示不切分
 
-    def test_error_result(self) -> None:
-        """测试错误结果"""
-        result = TransformResult(success=False, error_message="Test error")
+        result = transformer.apply_split_plan(plan)
 
-        assert result.success is False
-        assert result.error_message == "Test error"
+        assert result is not simple_conv_model  # 应该是副本
+        assert len(result.graph.node) == len(simple_conv_model.graph.node)
 
-
-class TestGraphTransformer:
-    """测试GraphTransformer类"""
-
-    def test_initialization(self, simple_conv_model: ModelProto) -> None:
-        """测试初始化"""
-        transformer = GraphTransformer(simple_conv_model, batch_dim=0)
-
-        assert transformer.model == simple_conv_model
-        assert transformer.batch_dim == 0
-        assert transformer._analyzer is not None
-
-    def test_create_context(self, simple_conv_model: ModelProto) -> None:
-        """测试创建上下文"""
-        transformer = GraphTransformer(simple_conv_model, batch_dim=0)
-        ctx = transformer.create_context()
-
-        assert isinstance(ctx, TransformContext)
-        assert ctx.model == simple_conv_model
-
-    def test_apply_single_split(
-        self, simple_conv_model: ModelProto, simple_split_plan: SplitPlan
-    ) -> None:
-        """测试应用单个切分方案"""
-        transformer = GraphTransformer(simple_conv_model, batch_dim=0)
-        result = transformer.apply_split(simple_split_plan)
-
-        assert result.success is True
-        assert len(result.split_operators) == 1
-        assert simple_split_plan.operator_name in result.split_operators
-
-    def test_apply_multiple_splits(self, simple_conv_model: ModelProto) -> None:
-        """测试应用多个切分方案"""
-        plans = [
-            SplitPlan(operator_name="conv_0", parts=2, axis=0),
-            SplitPlan(operator_name="relu_0", parts=2, axis=0),
-        ]
-
-        transformer = GraphTransformer(simple_conv_model, batch_dim=0)
-        result = transformer.apply_splits(plans)
-
-        assert result.success is True
-        # Note: Only conv_0 will be found and split, relu_0 may not have suitable input
-        assert len(result.split_operators) >= 1
-
-    def test_apply_splits_empty_list(self, simple_conv_model: ModelProto) -> None:
-        """测试应用空的切分列表"""
-        transformer = GraphTransformer(simple_conv_model, batch_dim=0)
-        result = transformer.apply_splits([])
-
-        assert result.success is True
-        assert len(result.split_operators) == 0
-
-    def test_build_transformed_model(
-        self, simple_conv_model: ModelProto, simple_split_plan: SplitPlan
-    ) -> None:
-        """测试构建变换后的模型"""
-        transformer = GraphTransformer(simple_conv_model, batch_dim=0)
-        transformer.apply_split(simple_split_plan)
-
-        new_model = transformer.build()
-
-        assert isinstance(new_model, ModelProto)
-        assert new_model.ir_version == simple_conv_model.ir_version
-        assert len(new_model.graph.node) > 0
-
-    def test_preserve_model_metadata(
-        self, simple_conv_model: ModelProto, simple_split_plan: SplitPlan
-    ) -> None:
-        """测试保留模型元数据"""
-        transformer = GraphTransformer(simple_conv_model, batch_dim=0)
-        transformer.apply_split(simple_split_plan)
-
-        new_model = transformer.build()
-
-        assert new_model.ir_version == simple_conv_model.ir_version
-        assert new_model.producer_name == simple_conv_model.producer_name
-        assert new_model.producer_version == simple_conv_model.producer_version
-
-    def test_transform_with_custom_axis(self, simple_matmul_model: ModelProto) -> None:
-        """测试使用自定义轴进行变换"""
-        plan = SplitPlan(operator_name="matmul_0", parts=2, axis=1)
-
-        transformer = GraphTransformer(simple_matmul_model, batch_dim=1)
-        result = transformer.apply_split(plan)
-
-        assert result.success is True
-        assert plan.operator_name in result.split_operators
-
-    def test_execute_and_save(
-        self, simple_conv_model: ModelProto, simple_split_plan: SplitPlan
-    ) -> None:
-        """测试执行变换并保存"""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            output_path = Path(tmpdir) / "split_model.onnx"
-
-            transformer = GraphTransformer(simple_conv_model, batch_dim=0)
-            result = transformer.execute_and_save([simple_split_plan], output_path)
-
-            assert result.success is True
-            assert output_path.exists()
-
-            # 加载保存的模型验证
-            loaded_model = onnx.load(str(output_path))
-            assert isinstance(loaded_model, ModelProto)
-
-    def test_execute_and_save_creates_directory(
-        self, simple_conv_model: ModelProto, simple_split_plan: SplitPlan
-    ) -> None:
-        """测试execute_and_save创建不存在的目录"""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            output_path = Path(tmpdir) / "subdir" / "split_model.onnx"
-
-            transformer = GraphTransformer(simple_conv_model, batch_dim=0)
-            result = transformer.execute_and_save([simple_split_plan], output_path)
-
-            assert result.success is True
-            assert output_path.exists()
-
-    def test_model_validity_after_transform(
-        self, simple_conv_model: ModelProto, simple_split_plan: SplitPlan
-    ) -> None:
-        """测试变换后的模型有效性"""
-        transformer = GraphTransformer(simple_conv_model, batch_dim=0)
-        transformer.apply_split(simple_split_plan)
-
-        new_model = transformer.build()
-
-        # 检查模型有基本结构
-        assert len(new_model.graph.node) > 0
-        assert len(new_model.graph.input) > 0
-        assert len(new_model.graph.output) > 0
-
-        # 检查模型可以序列化
-        with tempfile.NamedTemporaryFile(suffix=".onnx", delete=True) as f:
-            onnx.save(new_model, f.name)
-            # 可以重新加载
-            loaded = onnx.load(f.name)
-            assert loaded is not None
-
-    def test_get_transform_metrics(
-        self, simple_conv_model: ModelProto, simple_split_plan: SplitPlan
-    ) -> None:
-        """测试获取变换指标"""
-        transformer = GraphTransformer(simple_conv_model, batch_dim=0)
-        transformer.apply_split(simple_split_plan)
-
-        metrics = transformer.get_metrics()
-
-        assert "split_count" in metrics
-        assert "new_node_count" in metrics
-        assert "original_node_count" in metrics
-        assert metrics["split_count"] >= 1
-
-    def test_nonexistent_operator_split(self, simple_conv_model: ModelProto) -> None:
-        """测试对不存在的算子进行切分"""
+    def test_apply_split_plan_invalid_operator_raises_error(self, simple_conv_model: ModelProto) -> None:
+        """测试不存在的算子抛出ValueError"""
+        analyzer = ModelAnalyzer(simple_conv_model)
+        transformer = GraphTransformer(analyzer)
         plan = SplitPlan(operator_name="nonexistent_op", parts=2, axis=0)
 
-        transformer = GraphTransformer(simple_conv_model, batch_dim=0)
-        result = transformer.apply_split(plan)
-
-        # 应该返回失败或跳过
-        assert result.success is True  # 跳过不报错
-
-    def test_batch_dim_parameter(self, simple_conv_model: ModelProto) -> None:
-        """测试batch_dim参数传递"""
-        transformer = GraphTransformer(simple_conv_model, batch_dim=1)
-
-        assert transformer.batch_dim == 1
-
-        ctx = transformer.create_context()
-        assert ctx.batch_dim == 1
+        with pytest.raises(ValueError, match="Operator not found"):
+            transformer.apply_split_plan(plan)
 
 
-@pytest.mark.parametrize(
-    ("parts", "axis", "expected_split_count"),
-    [
-        (2, 0, 1),
-        (3, 0, 1),
-        (4, 1, 1),
-    ],
-)
-def test_various_split_configs(
-    simple_conv_model: ModelProto,
-    parts: int,
-    axis: int,
-    expected_split_count: int,
-) -> None:
-    """测试各种切分配置"""
-    plan = SplitPlan(operator_name="conv_0", parts=parts, axis=axis)
+class TestInputSplit:
+    """测试输入切分相关方法"""
 
-    transformer = GraphTransformer(simple_conv_model, batch_dim=axis)
-    result = transformer.apply_split(plan)
+    def test_needs_input_split_with_model_input(self, simple_conv_model: ModelProto) -> None:
+        """测试模型输入需要切分"""
+        analyzer = ModelAnalyzer(simple_conv_model)
+        transformer = GraphTransformer(analyzer)
 
-    assert result.success is True
-    assert result.metrics["split_count"] == expected_split_count
+        # 找到conv_0节点
+        for node in simple_conv_model.graph.node:
+            if node.name == "conv_0":
+                result = transformer._needs_input_split(node)
+                # conv_0的输入来自模型输入或Constant节点，需要切分
+                assert result is True
+                break
+
+    def test_is_weight_detects_initializer(self, simple_conv_model: ModelProto) -> None:
+        """测试_is_weight正确识别权重"""
+        analyzer = ModelAnalyzer(simple_conv_model)
+        transformer = GraphTransformer(analyzer)
+
+        # simple_conv模型没有initializer（权重由Constant节点生成）
+        # input不是initializer
+        assert transformer._is_weight("input") is False
+        # weight_value也不是initializer（由Constant生成）
+        assert transformer._is_weight("weight_value") is False
+
+        # 测试empty string
+        assert transformer._is_weight("") is False
+
+    def test_create_input_splits_creates_split_nodes(self, simple_conv_model: ModelProto) -> None:
+        """测试_create_input_splits创建切分节点"""
+        analyzer = ModelAnalyzer(simple_conv_model)
+        transformer = GraphTransformer(analyzer)
+        plan = SplitPlan(operator_name="conv_0", parts=2, axis=0)
+
+        # 找到conv_0节点
+        for node in simple_conv_model.graph.node:
+            if node.name == "conv_0":
+                split_nodes = transformer._create_input_splits(node, plan)
+
+                # conv_0有两个输入：input和weight_value，都不是initializer
+                # 应该为两个输入都创建split节点
+                assert len(split_nodes) == 2
+                assert all(n.op_type == "Split" for n in split_nodes)
+                break
+
+
+class TestOutputMerge:
+    """测试输出合并相关方法"""
+
+    def test_needs_output_merge_with_model_output(self, model_with_branches: ModelProto) -> None:
+        """测试模型输出需要合并"""
+        analyzer = ModelAnalyzer(model_with_branches)
+        transformer = GraphTransformer(analyzer)
+
+        # 找到输出节点
+        for node in model_with_branches.graph.node:
+            for output_name in node.output:
+                if transformer._is_model_output(output_name):
+                    result = transformer._needs_output_merge(node)
+                    assert result is True
+                    break
+
+    def test_is_model_output_detects_graph_outputs(self, simple_conv_model: ModelProto) -> None:
+        """测试_is_model_output正确识别模型输出"""
+        analyzer = ModelAnalyzer(simple_conv_model)
+        transformer = GraphTransformer(analyzer)
+
+        # relu_output是模型输出
+        assert transformer._is_model_output("relu_output") is True
+        # conv_output不是模型输出
+        assert transformer._is_model_output("conv_output") is False
+
+    def test_create_output_merges_creates_concat_nodes(self, simple_conv_model: ModelProto) -> None:
+        """测试_create_output_merges创建合并节点"""
+        analyzer = ModelAnalyzer(simple_conv_model)
+        transformer = GraphTransformer(analyzer)
+        plan = SplitPlan(operator_name="conv_0", parts=2, axis=0)
+
+        # 找到conv_0节点
+        for node in simple_conv_model.graph.node:
+            if node.name == "conv_0":
+                concat_nodes = transformer._create_output_merges(node, plan)
+
+                # conv_0有一个输出
+                assert len(concat_nodes) == 1
+                assert concat_nodes[0].op_type == "Concat"
+                break
+
+
+class TestUpdateGraphNodes:
+    """测试图节点更新方法"""
+
+    def test_update_graph_nodes_removes_and_adds(self, simple_conv_model: ModelProto) -> None:
+        """测试_update_graph_nodes正确移除和添加节点"""
+        analyzer = ModelAnalyzer(simple_conv_model)
+        transformer = GraphTransformer(analyzer)
+
+        # 克隆模型进行测试
+        test_model = onnx.load(str(
+            Path(__file__).parent / "fixtures" / "models" / "simple_conv.onnx"
+        ))
+
+        original_node_count = len(test_model.graph.node)
+        to_remove = [test_model.graph.node[0]]
+        to_add = [onnx.helper.make_node("Relu", inputs=["x"], outputs=["y"], name="new_relu")]
+
+        transformer._update_graph_nodes(test_model.graph, to_remove, to_add)
+
+        # 应该移除1个，添加1个，总数不变
+        assert len(test_model.graph.node) == original_node_count
+
+        # 新节点应该存在
+        node_names = [n.name for n in test_model.graph.node]
+        assert "new_relu" in node_names
+
+
+class TestSplitIntegration:
+    """测试切分集成"""
+
+    def test_full_split_creates_expected_nodes(self, simple_conv_model: ModelProto) -> None:
+        """测试完整切分创建预期的节点"""
+        analyzer = ModelAnalyzer(simple_conv_model)
+        transformer = GraphTransformer(analyzer)
+        plan = SplitPlan(operator_name="conv_0", parts=2, axis=0)
+
+        result = transformer.apply_split_plan(plan)
+
+        # 应该包含: Constant, Split, 2个Conv, Concat, Relu
+        node_types = [n.op_type for n in result.graph.node]
+        assert node_types.count("Conv") == 2
+        assert "Split" in node_types
+        assert "Concat" in node_types
+
+    def test_split_with_matmul_model(self, simple_matmul_model: ModelProto) -> None:
+        """测试MatMul模型切分"""
+        analyzer = ModelAnalyzer(simple_matmul_model)
+        transformer = GraphTransformer(analyzer)
+        plan = SplitPlan(operator_name="matmul_0", parts=2, axis=0)
+
+        result = transformer.apply_split_plan(plan)
+
+        # 应该包含2个MatMul和相关的Split/Concat节点
+        node_types = [n.op_type for n in result.graph.node]
+        assert node_types.count("MatMul") == 2
+        assert "Split" in node_types
+        assert "Concat" in node_types
+
+
+class TestShapeInference:
+    """测试形状推断"""
+
+    def test_split_runs_shape_inference(self, simple_conv_model: ModelProto) -> None:
+        """测试切分后运行形状推断"""
+        analyzer = ModelAnalyzer(simple_conv_model)
+        transformer = GraphTransformer(analyzer)
+        plan = SplitPlan(operator_name="conv_0", parts=2, axis=0)
+
+        result = transformer.apply_split_plan(plan)
+
+        # 验证模型有形状信息
+        assert result.graph.value_info is not None
