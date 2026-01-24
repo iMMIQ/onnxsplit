@@ -66,25 +66,47 @@ class GraphTransformer:
         if target_node is None:
             raise ValueError(f"Node not found in graph: {plan.operator_name}")
 
-        # 克隆节点
-        cloned_nodes = []
-        for i in range(plan.parts):
-            new_outputs = [f"{out}_{i}" for out in target_node.output]
-            cloned = clone_node(
-                target_node,
-                suffix=f"_split_{i}",
-                new_outputs=new_outputs,
-            )
-            cloned_nodes.append(cloned)
-
         # 准备节点添加/移除列表
         nodes_to_remove = [target_node]
         nodes_to_add = []
 
-        # 插入输入切分（如果需要）
+        # 插入输入切分（如果需要），并建立输入到split输出的映射
+        input_split_map = {}  # 原始输入名 -> 切分后的输出名列表
         if self._needs_input_split(target_node):
             split_nodes = self._create_input_splits(target_node, plan)
             nodes_to_add.extend(split_nodes)
+
+            # 建立输入映射: 原始输入名 -> [split_0, split_1, ...]
+            for input_name in target_node.input:
+                if not input_name or self._is_weight(input_name):
+                    continue
+                split_outputs = [f"{input_name}_split_{i}" for i in range(plan.parts)]
+                input_split_map[input_name] = split_outputs
+
+        # 克隆节点，使用切分后的输入
+        cloned_nodes = []
+        for i in range(plan.parts):
+            new_outputs = [f"{out}_{i}" for out in target_node.output]
+
+            # 构建新的输入列表
+            new_inputs = []
+            for input_name in target_node.input:
+                if not input_name:
+                    new_inputs.append("")
+                elif input_name in input_split_map:
+                    # 使用对应的split输出
+                    new_inputs.append(input_split_map[input_name][i])
+                else:
+                    # 权重或不需要切分的输入，保持原样
+                    new_inputs.append(input_name)
+
+            cloned = clone_node(
+                target_node,
+                suffix=f"_split_{i}",
+                new_outputs=new_outputs,
+                new_inputs=new_inputs,
+            )
+            cloned_nodes.append(cloned)
 
         # 添加克隆节点
         nodes_to_add.extend(cloned_nodes)
