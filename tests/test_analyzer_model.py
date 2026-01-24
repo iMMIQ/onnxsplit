@@ -1,8 +1,10 @@
 """测试模型分析器"""
+
 from pathlib import Path
+
 import onnx
+
 from onnxsplit.analyzer.model import ModelAnalyzer
-from onnxsplit.analyzer.operator import OperatorInfo
 
 
 def test_analyzer_load_model():

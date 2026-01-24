@@ -1,12 +1,13 @@
 """ONNX模型分析器"""
+
 from pathlib import Path
 from typing import Optional
 
 import onnx
-from onnx import ModelProto, GraphProto, ValueInfoProto, NodeProto
+from onnx import ModelProto, ValueInfoProto
 
-from onnxsplit.analyzer.tensor import TensorMetadata, dtype_to_bytes
 from onnxsplit.analyzer.operator import OperatorInfo
+from onnxsplit.analyzer.tensor import TensorMetadata
 
 
 class ModelAnalyzer:
@@ -136,18 +137,14 @@ class ModelAnalyzer:
                 shape = self._get_tensor_shape(input_name)
                 dtype = self._get_tensor_dtype(input_name)
                 if shape:  # 只有已知形状才添加
-                    op_info.input_tensors.append(
-                        TensorMetadata(input_name, shape, dtype)
-                    )
+                    op_info.input_tensors.append(TensorMetadata(input_name, shape, dtype))
 
             # 添加输出张量信息
             for output_name in node.output:
                 shape = self._get_tensor_shape(output_name)
                 dtype = self._get_tensor_dtype(output_name)
                 if shape:
-                    op_info.output_tensors.append(
-                        TensorMetadata(output_name, shape, dtype)
-                    )
+                    op_info.output_tensors.append(TensorMetadata(output_name, shape, dtype))
 
             operators.append(op_info)
 
@@ -178,7 +175,11 @@ class ModelAnalyzer:
         """
         for node in self.graph.node:
             if tensor_name in node.output:
-                return node.name or f"{node.op_type}_{node.output[0]}"
+                if node.name:
+                    return node.name
+                if node.output:  # 防止空列表导致IndexError
+                    return f"{node.op_type}_{node.output[0]}"
+                return f"{node.op_type}_unknown"
         return None
 
     def get_tensor_consumers(self, tensor_name: str) -> list[str]:
@@ -193,7 +194,12 @@ class ModelAnalyzer:
         consumers = []
         for node in self.graph.node:
             if tensor_name in node.input:
-                name = node.name or f"{node.op_type}_{node.output[0]}"
+                if node.name:
+                    name = node.name
+                elif node.output:  # 防止空列表导致IndexError
+                    name = f"{node.op_type}_{node.output[0]}"
+                else:
+                    name = f"{node.op_type}_unknown"
                 consumers.append(name)
         return consumers
 
