@@ -1,4 +1,5 @@
 """测试配置数据结构"""
+
 from onnxsplit.config.schema import (
     AxisRule,
     GlobalConfig,
@@ -77,7 +78,7 @@ def test_split_config_creation():
         global_config=GlobalConfig(default_parts=2),
         operators={"/model/Conv": OperatorConfig(parts=4)},
         axis_rules=[AxisRule(op_type="Conv", prefer_axis=0)],
-        memory_rules=MemoryRule(auto_adjust=True)
+        memory_rules=MemoryRule(auto_adjust=True),
     )
     assert config.global_config.default_parts == 2
     assert config.operators["/model/Conv"].parts == 4
@@ -88,10 +89,7 @@ def test_split_config_creation():
 def test_split_config_empty_operators():
     """测试空算子配置"""
     config = SplitConfig(
-        global_config=GlobalConfig(),
-        operators={},
-        axis_rules=[],
-        memory_rules=None
+        global_config=GlobalConfig(), operators={}, axis_rules=[], memory_rules=None
     )
     assert config.operators == {}
     assert config.axis_rules == []

@@ -1,4 +1,5 @@
 """配置合并逻辑：将命令行参数与配置文件合并"""
+
 from dataclasses import replace
 
 from onnxsplit.config.schema import SplitConfig
@@ -44,7 +45,9 @@ def merge_cli_args(
     new_global = replace(
         config.global_config,
         default_parts=cli_parts if cli_parts is not None else config.global_config.default_parts,
-        max_memory_mb=cli_max_memory if cli_max_memory is not None else config.global_config.max_memory_mb,
+        max_memory_mb=cli_max_memory
+        if cli_max_memory is not None
+        else config.global_config.max_memory_mb,
     )
 
     # 创建并返回新的SplitConfig，保留其他配置

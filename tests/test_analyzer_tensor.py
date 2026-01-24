@@ -1,4 +1,5 @@
 """测试张量元数据结构"""
+
 from onnx import TensorProto
 
 from onnxsplit.analyzer.tensor import TensorMetadata, dtype_to_bytes

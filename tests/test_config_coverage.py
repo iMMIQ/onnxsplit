@@ -622,7 +622,7 @@ class TestMergerEarlyReturn:
             global_config=GlobalConfig(default_parts=2, max_memory_mb=512),
             operators={},
             axis_rules=[],
-            memory_rules=MemoryRule()
+            memory_rules=MemoryRule(),
         )
         result = merge_cli_args(config, cli_parts=None, cli_max_memory=None)
 
@@ -639,7 +639,7 @@ class TestMergerDataclassReplace:
             global_config=GlobalConfig(default_parts=2, max_memory_mb=512),
             operators={},
             axis_rules=[],
-            memory_rules=MemoryRule()
+            memory_rules=MemoryRule(),
         )
         original_global_id = id(config.global_config)
 
@@ -656,7 +656,7 @@ class TestMergerDataclassReplace:
             global_config=GlobalConfig(default_parts=2, max_memory_mb=512),
             operators={},
             axis_rules=[],
-            memory_rules=MemoryRule()
+            memory_rules=MemoryRule(),
         )
         original_global_id = id(config.global_config)
 
@@ -673,7 +673,7 @@ class TestMergerDataclassReplace:
             global_config=GlobalConfig(default_parts=2, max_memory_mb=512),
             operators={"/op": OperatorConfig(parts=1)},
             axis_rules=[AxisRule(op_type="Conv")],
-            memory_rules=MemoryRule()
+            memory_rules=MemoryRule(),
         )
         original_config_id = id(config)
 

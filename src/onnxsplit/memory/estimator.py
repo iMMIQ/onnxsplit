@@ -7,28 +7,10 @@ from onnx import TensorProto
 
 from onnxsplit.analyzer.model import ModelAnalyzer
 from onnxsplit.analyzer.operator import OperatorInfo
+from onnxsplit.analyzer.tensor import dtype_to_bytes
 
-_DTYPE_SIZE_MAP = {
-    TensorProto.FLOAT: 4,
-    TensorProto.FLOAT16: 2,
-    TensorProto.DOUBLE: 8,
-    TensorProto.INT8: 1,
-    TensorProto.INT16: 2,
-    TensorProto.INT32: 4,
-    TensorProto.INT64: 8,
-    TensorProto.UINT8: 1,
-    TensorProto.UINT16: 2,
-    TensorProto.UINT32: 4,
-    TensorProto.UINT64: 8,
-    TensorProto.BOOL: 1,
-    TensorProto.COMPLEX64: 8,
-    TensorProto.COMPLEX128: 16,
-}
-
-
-def dtype_bytes(dtype: int) -> int:
-    """获取数据类型的字节大小"""
-    return _DTYPE_SIZE_MAP.get(dtype, 4)
+# MB = 1024 * 1024 bytes
+MB = 1024 * 1024
 
 
 def estimate_tensor_memory(shape: tuple[int, ...], dtype: int) -> int:
@@ -45,13 +27,13 @@ def estimate_tensor_memory(shape: tuple[int, ...], dtype: int) -> int:
         return 0
 
     if not shape:
-        return dtype_bytes(dtype)
+        return dtype_to_bytes(dtype)
 
     numel = 1
     for dim in shape:
         numel *= dim
 
-    return numel * dtype_bytes(dtype)
+    return numel * dtype_to_bytes(dtype)
 
 
 @dataclass
@@ -66,7 +48,7 @@ class TensorMemoryInfo:
     @property
     def size_mb(self) -> float:
         """内存大小（MB）"""
-        return self.memory_bytes / (1024 * 1024)
+        return self.memory_bytes / MB
 
     @property
     def dtype_name(self) -> str:
@@ -178,11 +160,11 @@ class MemoryEstimator:
         self._operator_memory[op_info.name] = OperatorMemoryInfo(
             operator_name=op_info.name,
             op_type=op_info.op_type,
-            input_memory_mb=input_memory / (1024 * 1024),
-            output_memory_mb=output_memory / (1024 * 1024),
-            weights_memory_mb=weights_memory / (1024 * 1024),
-            total_memory_mb=total_memory / (1024 * 1024),
-            peak_memory_mb=total_memory / (1024 * 1024),  # 简化估算
+            input_memory_mb=input_memory / MB,
+            output_memory_mb=output_memory / MB,
+            weights_memory_mb=weights_memory / MB,
+            total_memory_mb=total_memory / MB,
+            peak_memory_mb=total_memory / MB,  # 简化估算
         )
 
     def _is_weight(self, tensor_name: str) -> bool:
@@ -221,5 +203,5 @@ class MemoryEstimator:
                 numel = 1
                 for dim in dims:
                     numel *= dim
-                total += numel * dtype_bytes(init.data_type)
+                total += numel * dtype_to_bytes(init.data_type)
         return total

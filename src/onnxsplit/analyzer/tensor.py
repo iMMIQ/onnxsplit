@@ -1,4 +1,5 @@
 """张量元数据结构"""
+
 from dataclasses import dataclass
 
 from onnx import TensorProto
@@ -6,6 +7,7 @@ from onnx import TensorProto
 _DTYPE_SIZE_MAP = {
     TensorProto.FLOAT: 4,
     TensorProto.FLOAT16: 2,
+    TensorProto.BFLOAT16: 2,
     TensorProto.DOUBLE: 8,
     TensorProto.INT8: 1,
     TensorProto.INT16: 2,
@@ -18,6 +20,8 @@ _DTYPE_SIZE_MAP = {
     TensorProto.BOOL: 1,
     TensorProto.COMPLEX64: 8,
     TensorProto.COMPLEX128: 16,
+    # STRING类型没有固定字节大小，返回0
+    TensorProto.STRING: 0,
 }
 
 
@@ -42,6 +46,7 @@ class TensorMetadata:
         shape: 张量形状（每个维度的大小）
         dtype: ONNX数据类型
     """
+
     name: str
     shape: tuple[int, ...]
     dtype: int

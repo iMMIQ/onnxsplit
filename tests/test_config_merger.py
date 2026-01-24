@@ -1,4 +1,5 @@
 """测试配置合并逻辑"""
+
 import pytest
 
 from onnxsplit.config.merger import ConfigMergeError, merge_cli_args
@@ -86,7 +87,7 @@ def test_merge_preserves_operators():
     """测试合并保留operators配置"""
     config = SplitConfig(
         global_config=GlobalConfig(default_parts=2),
-        operators={"/model/Conv": OperatorConfig(parts=4, axis=0)}
+        operators={"/model/Conv": OperatorConfig(parts=4, axis=0)},
     )
     result = merge_cli_args(config, cli_parts=8, cli_max_memory=None)
     assert len(result.operators) == 1
@@ -98,7 +99,7 @@ def test_merge_preserves_axis_rules():
     """测试合并保留axis_rules配置"""
     config = SplitConfig(
         global_config=GlobalConfig(default_parts=2),
-        axis_rules=[AxisRule(op_type="Conv", prefer_axis=0)]
+        axis_rules=[AxisRule(op_type="Conv", prefer_axis=0)],
     )
     result = merge_cli_args(config, cli_parts=8, cli_max_memory=None)
     assert len(result.axis_rules) == 1
@@ -110,7 +111,7 @@ def test_merge_preserves_memory_rules():
     """测试合并保留memory_rules配置"""
     config = SplitConfig(
         global_config=GlobalConfig(default_parts=2),
-        memory_rules=MemoryRule(auto_adjust=True, overflow_strategy="binary_split")
+        memory_rules=MemoryRule(auto_adjust=True, overflow_strategy="binary_split"),
     )
     result = merge_cli_args(config, cli_parts=8, cli_max_memory=1024)
     assert result.memory_rules is not None

@@ -6,27 +6,29 @@ import pytest
 from onnx import TensorProto
 
 from onnxsplit.analyzer import ModelAnalyzer
+from onnxsplit.analyzer.tensor import dtype_to_bytes
 from onnxsplit.memory.estimator import (
     MemoryEstimator,
     TensorMemoryInfo,
-    dtype_bytes,
     estimate_tensor_memory,
 )
 
 
-def test_dtype_bytes():
+def test_dtype_to_bytes():
     """测试各数据类型的字节大小"""
-    assert dtype_bytes(TensorProto.FLOAT) == 4
-    assert dtype_bytes(TensorProto.FLOAT16) == 2
-    assert dtype_bytes(TensorProto.DOUBLE) == 8
-    assert dtype_bytes(TensorProto.INT8) == 1
-    assert dtype_bytes(TensorProto.INT16) == 2
-    assert dtype_bytes(TensorProto.INT32) == 4
-    assert dtype_bytes(TensorProto.INT64) == 8
-    assert dtype_bytes(TensorProto.BOOL) == 1
-    assert dtype_bytes(TensorProto.UINT8) == 1
-    assert dtype_bytes(TensorProto.COMPLEX64) == 8
-    assert dtype_bytes(TensorProto.COMPLEX128) == 16
+    assert dtype_to_bytes(TensorProto.FLOAT) == 4
+    assert dtype_to_bytes(TensorProto.FLOAT16) == 2
+    assert dtype_to_bytes(TensorProto.BFLOAT16) == 2
+    assert dtype_to_bytes(TensorProto.DOUBLE) == 8
+    assert dtype_to_bytes(TensorProto.INT8) == 1
+    assert dtype_to_bytes(TensorProto.INT16) == 2
+    assert dtype_to_bytes(TensorProto.INT32) == 4
+    assert dtype_to_bytes(TensorProto.INT64) == 8
+    assert dtype_to_bytes(TensorProto.BOOL) == 1
+    assert dtype_to_bytes(TensorProto.UINT8) == 1
+    assert dtype_to_bytes(TensorProto.COMPLEX64) == 8
+    assert dtype_to_bytes(TensorProto.COMPLEX128) == 16
+    assert dtype_to_bytes(TensorProto.STRING) == 0
 
 
 def test_estimate_tensor_memory():
@@ -183,7 +185,7 @@ def test_estimator_with_dynamic_shape():
     # 动态形状的内存应该返回0或特殊处理
     breakdown = estimator.get_memory_breakdown()
     # 应该能正常处理，动态维度返回0
-    assert len(breakdown) >= 0
+    assert len(breakdown) > 0
 
 
 def test_estimator_weights_memory():
@@ -197,10 +199,10 @@ def test_estimator_weights_memory():
     assert weights_memory >= 0
 
 
-def test_dtype_bytes_unknown():
+def test_dtype_to_bytes_unknown():
     """测试未知类型"""
     # 假设999是未知类型
-    assert dtype_bytes(999) == 4  # 默认值
+    assert dtype_to_bytes(999) == 4  # 默认值
 
 
 def test_estimate_tensor_memory_large():

@@ -67,7 +67,9 @@ def _validate_int(value: any, field_name: str, context: str = "") -> int:
             pass
 
     context_msg = f" ({context})" if context else ""
-    raise ConfigError(f"Field '{field_name}'{context_msg} must be an integer, got {type(value).__name__}: {value}")
+    raise ConfigError(
+        f"Field '{field_name}'{context_msg} must be an integer, got {type(value).__name__}: {value}"
+    )
 
 
 def _load_global_config(data: dict) -> GlobalConfig:
@@ -121,7 +123,9 @@ def _load_operator_configs(data: dict) -> dict[str, OperatorConfig]:
 
     for op_path, op_config in operators_data.items():
         if not isinstance(op_config, dict):
-            raise ConfigError(f"Operator config for '{op_path}' must be a dict, got {type(op_config).__name__}")
+            raise ConfigError(
+                f"Operator config for '{op_path}' must be a dict, got {type(op_config).__name__}"
+            )
 
         # 验证parts (必需)
         if "parts" not in op_config:
@@ -159,7 +163,9 @@ def _load_axis_rules(data: dict) -> list[AxisRule]:
 
     for i, rule_data in enumerate(axis_rules_data):
         if not isinstance(rule_data, dict):
-            raise ConfigError(f"Axis rule at index {i} must be a dict, got {type(rule_data).__name__}")
+            raise ConfigError(
+                f"Axis rule at index {i} must be a dict, got {type(rule_data).__name__}"
+            )
 
         # 验证op_type (必需)
         if "op_type" not in rule_data:
@@ -167,7 +173,9 @@ def _load_axis_rules(data: dict) -> list[AxisRule]:
 
         op_type = rule_data["op_type"]
         if not isinstance(op_type, str):
-            raise ConfigError(f"Field 'op_type' in axis rule {i} must be a string, got {type(op_type).__name__}")
+            raise ConfigError(
+                f"Field 'op_type' in axis rule {i} must be a string, got {type(op_type).__name__}"
+            )
 
         # 获取prefer_axis (可选，可以是int, str, 或None)
         prefer_axis = rule_data.get("prefer_axis")
