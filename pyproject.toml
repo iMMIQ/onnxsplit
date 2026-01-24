@@ -1,0 +1,36 @@
+[project]
+name = "onnxsplit"
+version = "0.1.0"
+description = "ONNX model operator splitting tool for memory optimization"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "onnx>=1.20.1",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pyyaml>=6.0.0",
+    "black>=24.0.0",
+    "ruff>=0.1.0",
+]
+
+[project.scripts]
+onnxsplit = "onnxsplit.__main__:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W"]
+ignore = ["E501"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
