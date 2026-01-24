@@ -1,4 +1,5 @@
 """切分轴识别规则"""
+
 from dataclasses import dataclass
 
 from onnxsplit.analyzer.operator import OperatorInfo
@@ -12,6 +13,7 @@ class SplitableAxes:
         axes: 可切分的轴索引集合
         reason: 原因说明
     """
+
     axes: set[int]
     reason: str
 
@@ -142,9 +144,7 @@ class AxisAnalyzer:
         all_axes = set(range(len(input_shape)))
         return SplitableAxes(all_axes, "Element-wise operation")
 
-    def _analyze_conv(
-        self, op_info: OperatorInfo, input_shape: tuple[int, ...]
-    ) -> SplitableAxes:
+    def _analyze_conv(self, op_info: OperatorInfo, input_shape: tuple[int, ...]) -> SplitableAxes:
         """分析Conv算子
 
         Conv只能在batch维度(axis=0)切分。

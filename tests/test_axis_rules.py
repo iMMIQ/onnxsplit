@@ -1,13 +1,14 @@
 """测试切分轴规则"""
-import pytest
+
 from onnx import TensorProto
-from onnxsplit.splitter.axis_rules import (
-    SplitableAxes,
-    AxisAnalyzer,
-    get_splitable_axes_for_op,
-)
+
 from onnxsplit.analyzer.operator import OperatorInfo
 from onnxsplit.analyzer.tensor import TensorMetadata
+from onnxsplit.splitter.axis_rules import (
+    AxisAnalyzer,
+    SplitableAxes,
+    get_splitable_axes_for_op,
+)
 
 
 def test_splitable_axes_creation():
@@ -61,12 +62,8 @@ def test_analyzer_elementwise_ops():
             name=f"test_{op_type}",
             op_type=op_type,
             attributes={},
-            input_tensors=[
-                TensorMetadata("input", shape=(2, 3, 4, 4), dtype=TensorProto.FLOAT)
-            ],
-            output_tensors=[
-                TensorMetadata("output", shape=(2, 3, 4, 4), dtype=TensorProto.FLOAT)
-            ],
+            input_tensors=[TensorMetadata("input", shape=(2, 3, 4, 4), dtype=TensorProto.FLOAT)],
+            output_tensors=[TensorMetadata("output", shape=(2, 3, 4, 4), dtype=TensorProto.FLOAT)],
         )
         axes = analyzer.analyze(op_info)
         # Element-wise算子应该可以切所有轴
@@ -85,9 +82,7 @@ def test_analyzer_conv_only_batch():
             TensorMetadata("input", shape=(1, 3, 224, 224), dtype=TensorProto.FLOAT),
             TensorMetadata("weight", shape=(64, 3, 3, 3), dtype=TensorProto.FLOAT),
         ],
-        output_tensors=[
-            TensorMetadata("output", shape=(1, 64, 112, 112), dtype=TensorProto.FLOAT)
-        ],
+        output_tensors=[TensorMetadata("output", shape=(1, 64, 112, 112), dtype=TensorProto.FLOAT)],
     )
 
     axes = analyzer.analyze(op_info)
@@ -108,9 +103,7 @@ def test_analyzer_conv_1d():
             TensorMetadata("input", shape=(2, 16, 100), dtype=TensorProto.FLOAT),
             TensorMetadata("weight", shape=(32, 16, 3), dtype=TensorProto.FLOAT),
         ],
-        output_tensors=[
-            TensorMetadata("output", shape=(2, 32, 98), dtype=TensorProto.FLOAT)
-        ],
+        output_tensors=[TensorMetadata("output", shape=(2, 32, 98), dtype=TensorProto.FLOAT)],
     )
 
     axes = analyzer.analyze(op_info)
@@ -131,9 +124,7 @@ def test_analyzer_matmul():
             TensorMetadata("A", shape=(128, 64), dtype=TensorProto.FLOAT),
             TensorMetadata("B", shape=(64, 32), dtype=TensorProto.FLOAT),
         ],
-        output_tensors=[
-            TensorMetadata("C", shape=(128, 32), dtype=TensorProto.FLOAT)
-        ],
+        output_tensors=[TensorMetadata("C", shape=(128, 32), dtype=TensorProto.FLOAT)],
     )
 
     axes = analyzer.analyze(op_info)
@@ -154,9 +145,7 @@ def test_analyzer_matmul_3d():
             TensorMetadata("A", shape=(4, 128, 64), dtype=TensorProto.FLOAT),
             TensorMetadata("B", shape=(4, 64, 32), dtype=TensorProto.FLOAT),
         ],
-        output_tensors=[
-            TensorMetadata("C", shape=(4, 128, 32), dtype=TensorProto.FLOAT)
-        ],
+        output_tensors=[TensorMetadata("C", shape=(4, 128, 32), dtype=TensorProto.FLOAT)],
     )
 
     axes = analyzer.analyze(op_info)
@@ -172,12 +161,8 @@ def test_analyzer_reduce_ops():
         name="reduce_mean",
         op_type="ReduceMean",
         attributes={"axes": [1], "keepdims": 1},
-        input_tensors=[
-            TensorMetadata("input", shape=(2, 16, 32, 32), dtype=TensorProto.FLOAT)
-        ],
-        output_tensors=[
-            TensorMetadata("output", shape=(2, 1, 32, 32), dtype=TensorProto.FLOAT)
-        ],
+        input_tensors=[TensorMetadata("input", shape=(2, 16, 32, 32), dtype=TensorProto.FLOAT)],
+        output_tensors=[TensorMetadata("output", shape=(2, 1, 32, 32), dtype=TensorProto.FLOAT)],
     )
 
     axes = analyzer.analyze(op_info)
@@ -195,12 +180,8 @@ def test_analyzer_reduce_mean_all_axes():
         name="reduce_mean_all",
         op_type="ReduceMean",
         attributes={"keepdims": 1},
-        input_tensors=[
-            TensorMetadata("input", shape=(2, 16, 32, 32), dtype=TensorProto.FLOAT)
-        ],
-        output_tensors=[
-            TensorMetadata("output", shape=(1, 1, 1, 1), dtype=TensorProto.FLOAT)
-        ],
+        input_tensors=[TensorMetadata("input", shape=(2, 16, 32, 32), dtype=TensorProto.FLOAT)],
+        output_tensors=[TensorMetadata("output", shape=(1, 1, 1, 1), dtype=TensorProto.FLOAT)],
     )
 
     axes = analyzer.analyze(op_info)
@@ -216,12 +197,8 @@ def test_analyzer_batch_norm():
         name="batch_norm",
         op_type="BatchNormalization",
         attributes={},
-        input_tensors=[
-            TensorMetadata("input", shape=(4, 16, 32, 32), dtype=TensorProto.FLOAT)
-        ],
-        output_tensors=[
-            TensorMetadata("output", shape=(4, 16, 32, 32), dtype=TensorProto.FLOAT)
-        ],
+        input_tensors=[TensorMetadata("input", shape=(4, 16, 32, 32), dtype=TensorProto.FLOAT)],
+        output_tensors=[TensorMetadata("output", shape=(4, 16, 32, 32), dtype=TensorProto.FLOAT)],
     )
 
     axes = analyzer.analyze(op_info)
@@ -237,12 +214,8 @@ def test_analyzer_layer_norm():
         name="layer_norm",
         op_type="LayerNormalization",
         attributes={},
-        input_tensors=[
-            TensorMetadata("input", shape=(4, 128, 768), dtype=TensorProto.FLOAT)
-        ],
-        output_tensors=[
-            TensorMetadata("output", shape=(4, 128, 768), dtype=TensorProto.FLOAT)
-        ],
+        input_tensors=[TensorMetadata("input", shape=(4, 128, 768), dtype=TensorProto.FLOAT)],
+        output_tensors=[TensorMetadata("output", shape=(4, 128, 768), dtype=TensorProto.FLOAT)],
     )
 
     axes = analyzer.analyze(op_info)
@@ -258,12 +231,8 @@ def test_analyzer_softmax():
         name="softmax",
         op_type="Softmax",
         attributes={"axis": -1},
-        input_tensors=[
-            TensorMetadata("input", shape=(4, 128, 768), dtype=TensorProto.FLOAT)
-        ],
-        output_tensors=[
-            TensorMetadata("output", shape=(4, 128, 768), dtype=TensorProto.FLOAT)
-        ],
+        input_tensors=[TensorMetadata("input", shape=(4, 128, 768), dtype=TensorProto.FLOAT)],
+        output_tensors=[TensorMetadata("output", shape=(4, 128, 768), dtype=TensorProto.FLOAT)],
     )
 
     axes = analyzer.analyze(op_info)
@@ -280,12 +249,8 @@ def test_analyzer_reshape():
         name="reshape",
         op_type="Reshape",
         attributes={},
-        input_tensors=[
-            TensorMetadata("input", shape=(4, 128), dtype=TensorProto.FLOAT)
-        ],
-        output_tensors=[
-            TensorMetadata("output", shape=(4, 8, 16), dtype=TensorProto.FLOAT)
-        ],
+        input_tensors=[TensorMetadata("input", shape=(4, 128), dtype=TensorProto.FLOAT)],
+        output_tensors=[TensorMetadata("output", shape=(4, 8, 16), dtype=TensorProto.FLOAT)],
     )
 
     axes = analyzer.analyze(op_info)
@@ -301,11 +266,9 @@ def test_analyzer_flatten():
         name="flatten",
         op_type="Flatten",
         attributes={"axis": 1},
-        input_tensors=[
-            TensorMetadata("input", shape=(4, 3, 224, 224), dtype=TensorProto.FLOAT)
-        ],
+        input_tensors=[TensorMetadata("input", shape=(4, 3, 224, 224), dtype=TensorProto.FLOAT)],
         output_tensors=[
-            TensorMetadata("output", shape=(4, 3*224*224), dtype=TensorProto.FLOAT)
+            TensorMetadata("output", shape=(4, 3 * 224 * 224), dtype=TensorProto.FLOAT)
         ],
     )
 
@@ -322,12 +285,8 @@ def test_analyzer_unknown_op():
         name="unknown",
         op_type="CustomOp",
         attributes={},
-        input_tensors=[
-            TensorMetadata("input", shape=(4, 16), dtype=TensorProto.FLOAT)
-        ],
-        output_tensors=[
-            TensorMetadata("output", shape=(4, 16), dtype=TensorProto.FLOAT)
-        ],
+        input_tensors=[TensorMetadata("input", shape=(4, 16), dtype=TensorProto.FLOAT)],
+        output_tensors=[TensorMetadata("output", shape=(4, 16), dtype=TensorProto.FLOAT)],
     )
 
     axes = analyzer.analyze(op_info)
@@ -341,12 +300,8 @@ def test_get_splitable_axes_for_op():
         name="relu",
         op_type="Relu",
         attributes={},
-        input_tensors=[
-            TensorMetadata("input", shape=(2, 3, 4), dtype=TensorProto.FLOAT)
-        ],
-        output_tensors=[
-            TensorMetadata("output", shape=(2, 3, 4), dtype=TensorProto.FLOAT)
-        ],
+        input_tensors=[TensorMetadata("input", shape=(2, 3, 4), dtype=TensorProto.FLOAT)],
+        output_tensors=[TensorMetadata("output", shape=(2, 3, 4), dtype=TensorProto.FLOAT)],
     )
 
     axes = get_splitable_axes_for_op(op_info)
@@ -361,12 +316,8 @@ def test_analyzer_shape_dimension_one():
         name="conv",
         op_type="Conv",
         attributes={},
-        input_tensors=[
-            TensorMetadata("input", shape=(1, 3, 224, 224), dtype=TensorProto.FLOAT)
-        ],
-        output_tensors=[
-            TensorMetadata("output", shape=(1, 64, 112, 112), dtype=TensorProto.FLOAT)
-        ],
+        input_tensors=[TensorMetadata("input", shape=(1, 3, 224, 224), dtype=TensorProto.FLOAT)],
+        output_tensors=[TensorMetadata("output", shape=(1, 64, 112, 112), dtype=TensorProto.FLOAT)],
     )
 
     axes = analyzer.analyze(op_info)
@@ -383,12 +334,8 @@ def test_analyzer_transpose():
         name="transpose",
         op_type="Transpose",
         attributes={"perm": [0, 2, 1, 3]},
-        input_tensors=[
-            TensorMetadata("input", shape=(2, 3, 224, 224), dtype=TensorProto.FLOAT)
-        ],
-        output_tensors=[
-            TensorMetadata("output", shape=(2, 224, 3, 224), dtype=TensorProto.FLOAT)
-        ],
+        input_tensors=[TensorMetadata("input", shape=(2, 3, 224, 224), dtype=TensorProto.FLOAT)],
+        output_tensors=[TensorMetadata("output", shape=(2, 224, 3, 224), dtype=TensorProto.FLOAT)],
     )
 
     axes = analyzer.analyze(op_info)
@@ -405,9 +352,7 @@ def test_analyzer_pooling():
             name=f"pool_{op_type}",
             op_type=op_type,
             attributes={"kernel_shape": [2, 2]} if "Global" not in op_type else {},
-            input_tensors=[
-                TensorMetadata("input", shape=(4, 16, 32, 32), dtype=TensorProto.FLOAT)
-            ],
+            input_tensors=[TensorMetadata("input", shape=(4, 16, 32, 32), dtype=TensorProto.FLOAT)],
             output_tensors=[
                 TensorMetadata("output", shape=(4, 16, 16, 16), dtype=TensorProto.FLOAT)
             ],
