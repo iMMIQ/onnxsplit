@@ -122,8 +122,8 @@ def test_create_slice_node_multi_dim():
     )
 
     assert node.op_type == "Slice"
-    # Slice的输入是: input, starts, ends, axes, steps
-    assert len(node.input) == 5  # input + starts + ends + axes + steps
+    # Slice的输入是: input, starts, ends, axes（不指定steps时不包含）
+    assert len(node.input) == 4  # input + starts + ends + axes
 
 
 def test_create_slice_node_with_steps():

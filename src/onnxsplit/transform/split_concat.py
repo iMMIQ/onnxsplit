@@ -3,6 +3,10 @@
 import onnx.helper
 from onnx import NodeProto, TensorProto
 
+# 模块级别的字典，用于存储Slice节点的初始器信息
+# 键为节点的id，值为初始器张量列表
+_slice_node_initializers: dict[int, list] = {}
+
 
 def create_split_node(
     input_name: str,
@@ -121,25 +125,21 @@ def create_slice_node(
     ends_tensor = onnx.helper.make_tensor("ends", TensorProto.INT64, dims=[len(ends)], vals=ends)
     axes_tensor = onnx.helper.make_tensor("axes", TensorProto.INT64, dims=[len(axes)], vals=axes)
 
-    # 如果未指定steps，默认为全1
-    if steps is None:
-        steps = [1] * len(starts)
-
-    steps_tensor = onnx.helper.make_tensor(
-        "steps", TensorProto.INT64, dims=[len(steps)], vals=steps
-    )
-
-    # Slice节点的输入: data, starts, ends, axes, steps
+    # Slice节点的输入: data, starts, ends, axes
     inputs = [
         input_name,
         starts_tensor.name,
         ends_tensor.name,
         axes_tensor.name,
-        steps_tensor.name,
     ]
 
-    # 注意：返回的节点需要配合初始器使用
-    # 这里先创建节点结构，初始器需要在图层面添加
+    # 如果有steps，添加到输入和初始器列表
+    if steps is not None:
+        steps_tensor = onnx.helper.make_tensor(
+            "steps", TensorProto.INT64, dims=[len(steps)], vals=steps
+        )
+        inputs.append(steps_tensor.name)
+
     node = onnx.helper.make_node(
         "Slice",
         inputs=inputs,
@@ -147,16 +147,12 @@ def create_slice_node(
         name=node_name,
     )
 
-    # 将初始器信息存储在一个字典中，使用节点名称作为键
-    # 调用方需要通过 get_slice_initializers 获取
-    if not hasattr(create_slice_node, "_initializers"):
-        create_slice_node._initializers = {}
-    create_slice_node._initializers[node_name] = [
-        starts_tensor,
-        ends_tensor,
-        axes_tensor,
-        steps_tensor,
-    ]
+    # 将初始器信息附加到节点上（用于后续处理）
+    # 由于protobuf限制，使用模块级字典存储，键为节点id
+    initializers = [starts_tensor, ends_tensor, axes_tensor]
+    if steps is not None:
+        initializers.append(steps_tensor)
+    _slice_node_initializers[id(node)] = initializers
 
     return node
 
@@ -170,6 +166,4 @@ def get_slice_initializers(node: NodeProto) -> list:
     Returns:
         初始器张量列表
     """
-    if hasattr(create_slice_node, "_initializers") and node.name in create_slice_node._initializers:
-        return create_slice_node._initializers[node.name]
-    return []
+    return _slice_node_initializers.get(id(node), [])
