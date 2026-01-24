@@ -33,23 +33,18 @@ class AutoSplitAdjuster:
         self,
         plan: SplitPlan,
         max_memory_mb: float | None,
-        max_parts: int | None = None,
     ) -> SplitPlan:
         """调整切分方案
 
         Args:
             plan: 原始切分方案
             max_memory_mb: 内存限制（MB），None表示不限制
-            max_parts: 最大切分数限制，None使用实例默认值
 
         Returns:
             调整后的切分方案
         """
         if max_memory_mb is None or not plan.is_split:
             return plan
-
-        # 使用传入的max_parts或实例默认值
-        effective_max_parts = max_parts if max_parts is not None else self.max_parts
 
         # 获取算子信息
         op_info = self.estimator.analyzer.get_operator(plan.operator_name)
@@ -68,11 +63,11 @@ class AutoSplitAdjuster:
 
         # 计算需要的切分数
         needed_parts = self._calculate_needed_parts(
-            op_mem.total_memory_mb, max_memory_mb, plan.parts, effective_max_parts
+            op_mem.total_memory_mb, max_memory_mb, plan.parts
         )
 
         # 限制在max_parts范围内
-        final_parts = min(needed_parts, effective_max_parts)
+        final_parts = min(needed_parts, self.max_parts)
 
         # 创建新方案
         return SplitPlan(
@@ -88,7 +83,6 @@ class AutoSplitAdjuster:
         total_memory_mb: float,
         max_memory_mb: float,
         current_parts: int,
-        max_parts: int | None = None,
     ) -> int:
         """计算满足内存限制所需的切分数
 
@@ -98,17 +92,13 @@ class AutoSplitAdjuster:
             total_memory_mb: 总内存
             max_memory_mb: 每份内存限制
             current_parts: 当前切分数
-            max_parts: 最大切分数限制
 
         Returns:
             需要的切分数
         """
-        # 使用传入的max_parts或实例默认值
-        effective_max_parts = max_parts if max_parts is not None else self.max_parts
-
         # 从当前切分数开始
         min_parts = max(current_parts, 1)
-        max_parts_search = effective_max_parts
+        max_parts_search = self.max_parts
 
         # 快速检查
         if total_memory_mb / min_parts <= max_memory_mb:

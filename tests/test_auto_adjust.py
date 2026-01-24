@@ -68,7 +68,6 @@ def test_adjuster_max_parts_limit():
     adjusted = adjuster.adjust_plan(
         plan,
         max_memory_mb=0.001,  # 1KB
-        max_parts=256,
     )
 
     # 应该受到max_parts限制
