@@ -33,20 +33,20 @@ def test_reconnect_strategy_complex():
 
 def test_calculate_overlap_range():
     """测试计算重叠区间"""
-    # src: [0, 33), dst: [0, 50) -> overlap: [0, 33)
-    assert calculate_overlap_range(0, 100, 0, 50, 2, 50) == (0, 33)
+    # src: [0, 50), dst: [0, 33) -> overlap: [0, 33) relative to src: [0, 33)
+    assert calculate_overlap_range(0, 50, 0, 33, 100) == (0, 33)
 
-    # src: [0, 33), dst: [50, 100) -> no overlap
-    assert calculate_overlap_range(0, 100, 50, 100, 2, 50) is None
+    # src: [0, 50), dst: [50, 100) -> no overlap
+    assert calculate_overlap_range(0, 50, 50, 100, 100) is None
 
 
 def test_calculate_overlap_edge_cases():
     """测试边界情况"""
-    # 完全包含
-    assert calculate_overlap_range(0, 100, 0, 100, 1, 1) == (0, 100)
+    # 完全包含 - src: [0, 100), dst: [0, 100) -> overlap relative to src: [0, 100)
+    assert calculate_overlap_range(0, 100, 0, 100, 100) == (0, 100)
 
-    # 刚好接触
-    assert calculate_overlap_range(0, 50, 50, 100, 2, 50) is None
+    # 刚好接触 - src: [0, 50), dst: [50, 100) -> no overlap
+    assert calculate_overlap_range(0, 50, 50, 100, 100) is None
 
 
 def test_generate_plan_one_to_one():
@@ -200,25 +200,25 @@ def test_calculate_overlap_detailed():
     # src chunks: [0,2), [2,4), [4,6)
     # dst chunks: [0,3), [3,6)
 
-    # A0 [0,2) 与 B0 [0,3) 重叠 [0,2)
+    # A0 [0,2) 与 B0 [0,3) 重叠 [0,2), relative to A0: [0, 2)
     assert calculate_overlap_range(
         src_start=0, src_end=2, dst_start=0, dst_end=3, batch_size=6
     ) == (0, 2)
 
-    # A1 [2,4) 与 B0 [0,3) 重叠 [2,3)
+    # A1 [2,4) 与 B0 [0,3) 重叠 [2,3), relative to A1: [0, 1)
     assert calculate_overlap_range(
         src_start=2, src_end=4, dst_start=0, dst_end=3, batch_size=6
-    ) == (2, 3)
+    ) == (0, 1)
 
-    # A1 [2,4) 与 B1 [3,6) 重叠 [3,4)
+    # A1 [2,4) 与 B1 [3,6) 重叠 [3,4), relative to A1: [1, 2)
     assert calculate_overlap_range(
         src_start=2, src_end=4, dst_start=3, dst_end=6, batch_size=6
-    ) == (3, 4)
+    ) == (1, 2)
 
-    # A2 [4,6) 与 B1 [3,6) 重叠 [4,6)
+    # A2 [4,6) 与 B1 [3,6) 重叠 [4,6), relative to A2: [0, 2)
     assert calculate_overlap_range(
         src_start=4, src_end=6, dst_start=3, dst_end=6, batch_size=6
-    ) == (4, 6)
+    ) == (0, 2)
 
 
 def test_strategy_repr():

@@ -106,80 +106,32 @@ class ReconnectPlan:
 
 
 def calculate_overlap_range(
-    *args: int,
-    src_start: int | None = None,
-    src_end: int | None = None,
-    dst_start: int | None = None,
-    dst_end: int | None = None,
-    batch_size: int | None = None,
+    src_start: int,
+    src_end: int,
+    dst_start: int,
+    dst_end: int,
+    batch_size: int,
 ) -> Optional[tuple[int, int]]:
     """计算源切片和目标切片的重叠区间
 
-    支持两种调用方式：
-    1. 5参数版本（命名参数或位置参数）：
-       calculate_overlap_range(src_start, src_end, dst_start, dst_end, batch_size)
-       calculate_overlap_range(src_start=0, src_end=2, dst_start=0, dst_end=3, batch_size=6)
-    2. 6参数版本（位置参数）：
-       calculate_overlap_range(src_idx, src_total, dst_idx, dst_end, src_parts, dst_parts)
+    Args:
+        src_start: 源切片在原始张量中的起始位置
+        src_end: 源切片在原始张量中的结束位置
+        dst_start: 目标切片在原始张量中的起始位置
+        dst_end: 目标切片在原始张量中的结束位置
+        batch_size: 批次大小
 
     Returns:
-        (重叠开始, 重叠结束) 在原始张量中的全局坐标，无重叠返回None
+        (重叠开始, 重叠结束) 相对于源切片的偏移，无重叠返回None
     """
-    # 6参数位置参数调用
-    if len(args) == 6 and all(x is not None for x in args):
-        src_idx, src_total, dst_idx, dst_end_value, src_parts_value, dst_parts = args
+    overlap_start = max(src_start, dst_start)
+    overlap_end = min(src_end, dst_end)
 
-        # 计算src chunk范围
-        src_chunk_size = src_total // src_parts_value
-        src_chunk_start = src_idx * src_chunk_size
-        src_chunk_end = (src_idx + 1) * src_chunk_size
+    if overlap_start >= overlap_end:
+        return None
 
-        if dst_idx == 0:
-            overlap_start = src_chunk_start
-            # 特殊情况：当dst_end_value == src_total时，使用src_chunk_end
-            if dst_end_value == src_total:
-                overlap_end_value = src_chunk_end
-            else:
-                # 调和比例计算
-                harmonic_end = src_total * dst_end_value // (src_total + dst_end_value)
-                overlap_end_value = min(harmonic_end, src_chunk_end)
-            return (overlap_start, overlap_end_value)
-        else:
-            # 计算dst在src_total坐标系下的位置
-            dst_position = dst_idx * src_total // dst_parts
-            if dst_position >= src_chunk_end:
-                return None
-            return (dst_position, min(src_chunk_end, dst_end_value))
-
-    # 标准调用（5参数或命名参数）
-    if None not in (src_start, src_end, dst_start, dst_end):
-        # 使用命名参数或5参数
-        if batch_size is None:
-            if len(args) == 5:
-                src_start, src_end, dst_start, dst_end, batch_size = args
-            else:
-                raise ValueError("Invalid arguments")
-
-        overlap_start = max(src_start, dst_start)
-        overlap_end = min(src_end, dst_end)
-
-        if overlap_start >= overlap_end:
-            return None
-
-        return (overlap_start, overlap_end)
-
-    # 尝试从args获取
-    if len(args) == 5:
-        src_start, src_end, dst_start, dst_end, batch_size = args
-        overlap_start = max(src_start, dst_start)
-        overlap_end = min(src_end, dst_end)
-
-        if overlap_start >= overlap_end:
-            return None
-
-        return (overlap_start, overlap_end)
-
-    raise ValueError("Invalid arguments for calculate_overlap_range")
+    # 返回相对于源切片的偏移
+    return (overlap_start - src_start, overlap_end - src_start)
 
 
 def generate_reconnect_plan(
@@ -307,10 +259,8 @@ def generate_reconnect_plan(
                 )
 
                 if overlap is not None:
-                    global_start, global_end = overlap
-                    # 转换为相对于源切片的坐标
-                    local_start = global_start - src_start
-                    local_end = global_end - src_start
+                    # overlap已经是相对于源切片的坐标
+                    local_start, local_end = overlap
                     slice_output = f"slice_{src_op}_{src_i}_for_{dst_op}_{dst_i}"
                     slice_outputs.append(slice_output)
 
