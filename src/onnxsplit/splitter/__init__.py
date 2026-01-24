@@ -1,8 +1,8 @@
 """模型切分模块"""
 
 from onnxsplit.splitter.axis_rules import (
-    SplitableAxes,
     AxisAnalyzer,
+    SplitableAxes,
     get_splitable_axes_for_op,
 )
 from onnxsplit.splitter.plan import SplitPlan, SplitReport
