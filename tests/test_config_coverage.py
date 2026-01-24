@@ -456,3 +456,232 @@ class TestLoadConfigPathExistsCheck:
             # Try to load a directory as a config file - should fail with OSError
             with pytest.raises(ConfigError, match="Failed to read file"):
                 load_config(tmpdir)
+
+
+class TestStringToIntConversion:
+    """Test string to integer conversion with ValueError handling (lines 63-70)."""
+
+    def test_default_parts_as_valid_string(self):
+        """Test that default_parts as valid string is converted to int."""
+        yaml_content = """
+        global:
+          default_parts: "5"
+        """
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
+            f.write(yaml_content)
+            f.flush()
+            path = Path(f.name)
+
+        try:
+            config = load_config(path)
+            assert config.global_config.default_parts == 5
+        finally:
+            path.unlink()
+
+    def test_default_parts_as_invalid_string(self):
+        """Test that default_parts as invalid string raises ConfigError (ValueError path)."""
+        yaml_content = """
+        global:
+          default_parts: "not_a_number"
+        """
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
+            f.write(yaml_content)
+            f.flush()
+            path = Path(f.name)
+
+        try:
+            with pytest.raises(ConfigError, match="default_parts.*must be an integer"):
+                load_config(path)
+        finally:
+            path.unlink()
+
+    def test_max_memory_as_string(self):
+        """Test that max_memory_mb as valid string is converted to int."""
+        yaml_content = """
+        global:
+          max_memory_mb: "1024"
+        """
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
+            f.write(yaml_content)
+            f.flush()
+            path = Path(f.name)
+
+        try:
+            config = load_config(path)
+            assert config.global_config.max_memory_mb == 1024
+        finally:
+            path.unlink()
+
+
+class TestOperatorAxisValidation:
+    """Test operator axis validation when axis is not None (lines 136-140)."""
+
+    def test_operator_axis_as_valid_string(self):
+        """Test that operator axis as valid string is converted to int."""
+        yaml_content = """
+        operators:
+          "/model/Conv":
+            parts: 2
+            axis: "1"
+        """
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
+            f.write(yaml_content)
+            f.flush()
+            path = Path(f.name)
+
+        try:
+            config = load_config(path)
+            assert config.operators["/model/Conv"].axis == 1
+        finally:
+            path.unlink()
+
+    def test_operator_axis_as_invalid_string(self):
+        """Test that operator axis as invalid string raises ConfigError."""
+        yaml_content = """
+        operators:
+          "/model/Conv":
+            parts: 2
+            axis: "invalid"
+        """
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
+            f.write(yaml_content)
+            f.flush()
+            path = Path(f.name)
+
+        try:
+            with pytest.raises(ConfigError, match="axis.*must be an integer"):
+                load_config(path)
+        finally:
+            path.unlink()
+
+    def test_operator_axis_as_int(self):
+        """Test that operator axis as int is preserved."""
+        yaml_content = """
+        operators:
+          "/model/Conv":
+            parts: 2
+            axis: 0
+        """
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
+            f.write(yaml_content)
+            f.flush()
+            path = Path(f.name)
+
+        try:
+            config = load_config(path)
+            assert config.operators["/model/Conv"].axis == 0
+        finally:
+            path.unlink()
+
+
+class TestYAMLExceptionHandling:
+    """Test yaml.YAMLError exception handling (line 247)."""
+
+    def test_yaml_parse_error_with_invalid_structure(self):
+        """Test that YAML parse errors are caught and wrapped in ConfigError."""
+        yaml_content = """
+        global:
+          default_parts: [unclosed list
+        """
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
+            f.write(yaml_content)
+            f.flush()
+            path = Path(f.name)
+
+        try:
+            with pytest.raises(ConfigError, match="Failed to parse YAML"):
+                load_config(path)
+        finally:
+            path.unlink()
+
+    def test_yaml_unexpected_characters(self):
+        """Test that YAML unexpected character errors are caught."""
+        yaml_content = """
+        global:
+          default_parts: [unclosed
+        """
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
+            f.write(yaml_content)
+            f.flush()
+            path = Path(f.name)
+
+        try:
+            # YAML parser should catch this as an error
+            with pytest.raises(ConfigError, match="Failed to parse YAML"):
+                load_config(path)
+        finally:
+            path.unlink()
+
+
+class TestMergerEarlyReturn:
+    """Test merger early return path (line 31)."""
+
+    def test_merger_returns_same_config_with_no_args(self):
+        """Test that merge_cli_args returns the same config object when both args are None."""
+        config = SplitConfig(
+            global_config=GlobalConfig(default_parts=2, max_memory_mb=512),
+            operators={},
+            axis_rules=[],
+            memory_rules=MemoryRule()
+        )
+        result = merge_cli_args(config, cli_parts=None, cli_max_memory=None)
+
+        # Should return the exact same object (early return path)
+        assert id(result) == id(config)
+
+
+class TestMergerDataclassReplace:
+    """Test dataclass replace operations in merger (lines 44-51)."""
+
+    def test_merger_creates_new_global_config_with_parts(self):
+        """Test that replace creates new GlobalConfig when updating parts."""
+        config = SplitConfig(
+            global_config=GlobalConfig(default_parts=2, max_memory_mb=512),
+            operators={},
+            axis_rules=[],
+            memory_rules=MemoryRule()
+        )
+        original_global_id = id(config.global_config)
+
+        result = merge_cli_args(config, cli_parts=4, cli_max_memory=None)
+
+        # Should create a new GlobalConfig via replace
+        assert id(result.global_config) != original_global_id
+        assert result.global_config.default_parts == 4
+        assert result.global_config.max_memory_mb == 512  # preserved
+
+    def test_merger_creates_new_global_config_with_max_memory(self):
+        """Test that replace creates new GlobalConfig when updating max_memory."""
+        config = SplitConfig(
+            global_config=GlobalConfig(default_parts=2, max_memory_mb=512),
+            operators={},
+            axis_rules=[],
+            memory_rules=MemoryRule()
+        )
+        original_global_id = id(config.global_config)
+
+        result = merge_cli_args(config, cli_parts=None, cli_max_memory=1024)
+
+        # Should create a new GlobalConfig via replace
+        assert id(result.global_config) != original_global_id
+        assert result.global_config.default_parts == 2  # preserved
+        assert result.global_config.max_memory_mb == 1024
+
+    def test_merger_creates_new_split_config(self):
+        """Test that replace creates new SplitConfig via replace."""
+        config = SplitConfig(
+            global_config=GlobalConfig(default_parts=2, max_memory_mb=512),
+            operators={"/op": OperatorConfig(parts=1)},
+            axis_rules=[AxisRule(op_type="Conv")],
+            memory_rules=MemoryRule()
+        )
+        original_config_id = id(config)
+
+        result = merge_cli_args(config, cli_parts=4, cli_max_memory=None)
+
+        # Should create a new SplitConfig via replace
+        assert id(result) != original_config_id
+        # Other fields should be preserved
+        assert len(result.operators) == 1
+        assert len(result.axis_rules) == 1
+        assert result.memory_rules is not None
