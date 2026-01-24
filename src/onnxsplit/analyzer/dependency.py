@@ -1,7 +1,7 @@
 """依赖关系图构建"""
-from dataclasses import dataclass
-from typing import Optional
+
 from collections import defaultdict, deque
+from dataclasses import dataclass
 
 from onnxsplit.analyzer.model import ModelAnalyzer
 from onnxsplit.analyzer.operator import OperatorInfo
@@ -16,6 +16,7 @@ class DependencyEdge:
         dst: 目标算子名称
         tensor_name: 传递的张量名称
     """
+
     src: str
     dst: str
     tensor_name: str
@@ -148,10 +149,7 @@ class DependencyGraph:
         Returns:
             源节点列表
         """
-        return [
-            node for name, node in self.nodes.items()
-            if not self._incoming.get(name)
-        ]
+        return [node for name, node in self.nodes.items() if not self._incoming.get(name)]
 
     def get_sink_nodes(self) -> list[DependencyNode]:
         """获取汇节点（无出边的节点）
@@ -159,10 +157,7 @@ class DependencyGraph:
         Returns:
             汇节点列表
         """
-        return [
-            node for name, node in self.nodes.items()
-            if not self._outgoing.get(name)
-        ]
+        return [node for name, node in self.nodes.items() if not self._outgoing.get(name)]
 
     def topological_sort(self) -> list[str]:
         """执行拓扑排序

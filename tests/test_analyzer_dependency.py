@@ -1,7 +1,9 @@
 """测试依赖关系图构建"""
-from onnxsplit.analyzer.dependency import DependencyGraph, DependencyEdge
-from onnxsplit.analyzer.model import ModelAnalyzer
+
 from pathlib import Path
+
+from onnxsplit.analyzer.dependency import DependencyEdge, DependencyGraph
+from onnxsplit.analyzer.model import ModelAnalyzer
 
 
 def test_dependency_graph_creation():
