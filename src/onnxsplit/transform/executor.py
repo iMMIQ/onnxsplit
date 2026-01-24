@@ -49,12 +49,19 @@ class GraphTransformer:
         new_model = copy.deepcopy(self.analyzer.model)
         new_graph = new_model.graph
 
-        # 找到要切分的节点
+        # 找到要切分的节点（通过输出名称匹配，处理无名称节点）
         target_node = None
         for node in new_graph.node:
-            if node.name == plan.operator_name:
+            # 优先通过节点名称匹配
+            if node.name and node.name == plan.operator_name:
                 target_node = node
                 break
+            # 如果节点无名称，尝试通过输出名称生成匹配
+            if not node.name and original_op.output_names:
+                synthetic_name = f"{node.op_type}_{node.output[0]}"
+                if synthetic_name == plan.operator_name:
+                    target_node = node
+                    break
 
         if target_node is None:
             raise ValueError(f"Node not found in graph: {plan.operator_name}")
@@ -166,15 +173,25 @@ class GraphTransformer:
         to_remove: list[onnx.NodeProto],
         to_add: list[onnx.NodeProto],
     ) -> None:
-        """更新图的节点列表"""
-        nodes_to_keep = []
+        """更新图的节点列表，保持拓扑顺序
+
+        将to_remove节点从图中移除，并在相同位置插入to_add节点。
+        """
         remove_names = {n.name for n in to_remove}
+
+        # 构建新的节点列表，在移除节点的位置插入新节点
+        new_nodes = []
         for node in graph.node:
-            if node.name not in remove_names:
-                nodes_to_keep.append(node)
+            if node.name in remove_names:
+                # 在移除节点的位置插入新节点
+                new_nodes.extend(to_add)
+            else:
+                new_nodes.append(node)
+
+        # 如果所有要移除的节点都不在原节点列表中（防御性代码）
+        if not any(n.name in remove_names for n in graph.node):
+            # 追加新节点到末尾
+            new_nodes.extend(to_add)
 
         graph.node.clear()
-        graph.node.extend(nodes_to_keep)
-
-        for node in to_add:
-            graph.node.append(node)
+        graph.node.extend(new_nodes)

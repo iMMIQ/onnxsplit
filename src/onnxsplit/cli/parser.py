@@ -56,29 +56,23 @@ def split(
         help="Path to the ONNX model file to split.",
         exists=True,
     ),
+    parts: int = typer.Option(
+        2,
+        "--parts",
+        "-p",
+        help="Number of parts to split the model into.",
+    ),
+    max_memory: Optional[int] = typer.Option(
+        None,
+        "--max-memory",
+        "-m",
+        help="Max memory per split (MB).",
+    ),
     output: Optional[str] = typer.Option(
         None,
         "--output",
         "-o",
-        help="Output directory for split model files.",
-    ),
-    strategy: str = typer.Option(
-        "size-based",
-        "--strategy",
-        "-s",
-        help="Splitting strategy: 'size-based', 'op-based', or 'custom'.",
-    ),
-    max_size: int = typer.Option(
-        1024,
-        "--max-size",
-        "-m",
-        help="Maximum size (MB) per split file.",
-    ),
-    target_ops: int = typer.Option(
-        50,
-        "--target-ops",
-        "-t",
-        help="Target number of operations per split for op-based strategy.",
+        help="Output directory for generated files.",
     ),
 ) -> None:
     """Split an ONNX model into smaller components.
@@ -86,20 +80,24 @@ def split(
     This command partitions a large ONNX model into multiple smaller models
     based on the specified splitting strategy.
     """
+    from onnxsplit.cli.parser import CliOptions
+    from onnxsplit.cli.runner import RunContext, run_split
+
     options: CliOptions = ctx.obj
-    output_path = output or options.output or "output"
 
-    if options.verbose:
-        typer.echo(f"Splitting model: {model_path}")
-        typer.echo(f"Strategy: {strategy}")
-        typer.echo(f"Output directory: {output_path}")
+    run_ctx = RunContext(
+        model_path=model_path,
+        output_dir=output or options.output or "output",
+        config_path=None,
+        cli_parts=parts,
+        cli_max_memory=max_memory,
+        verbose=options.verbose,
+        quiet=options.quiet,
+    )
 
-    if not options.quiet:
-        typer.echo(f"Split {model_path} with {strategy} strategy to {output_path}")
-        if strategy == "size-based":
-            typer.echo(f"Max size per split: {max_size} MB")
-        elif strategy == "op-based":
-            typer.echo(f"Target ops per split: {target_ops}")
+    result = run_split(run_ctx)
+    if not result.success:
+        raise typer.Exit(1)
 
 
 @app.command()
@@ -114,18 +112,7 @@ def analyze(
         None,
         "--output",
         "-o",
-        help="Output file for analysis results.",
-    ),
-    format: str = typer.Option(
-        "text",
-        "--format",
-        "-f",
-        help="Output format: 'text', 'json', or 'yaml'.",
-    ),
-    include_graph: bool = typer.Option(
-        False,
-        "--include-graph",
-        help="Include graph structure in analysis.",
+        help="Output directory for analysis report.",
     ),
 ) -> None:
     """Analyze an ONNX model and report structure information.
@@ -133,18 +120,20 @@ def analyze(
     This command examines the model's computational graph and provides
     detailed information about its structure, operations, and size.
     """
+    from onnxsplit.cli.runner import RunContext, run_analyze
+
     options: CliOptions = ctx.obj
-    output_file = output or f"analysis.{format}"
 
-    if options.verbose:
-        typer.echo(f"Analyzing model: {model_path}")
-        typer.echo(f"Output format: {format}")
-        typer.echo(f"Output file: {output_file}")
+    run_ctx = RunContext(
+        model_path=model_path,
+        output_dir=output or options.output or "output",
+        verbose=options.verbose,
+        quiet=options.quiet,
+    )
 
-    if not options.quiet:
-        typer.echo(f"Analyze {model_path} and save to {output_file} ({format} format)")
-        if include_graph:
-            typer.echo("Including graph structure in analysis")
+    result = run_analyze(run_ctx)
+    if not result.success:
+        raise typer.Exit(1)
 
 
 @app.command()
@@ -155,26 +144,25 @@ def validate(
         help="Path to the ONNX model file to validate.",
         exists=True,
     ),
-    check: list[str] = typer.Option(
-        ["all"],
-        "--check",
-        "-c",
-        help="Validation checks to run: 'graph', 'metadata', or 'all'.",
-    ),
 ) -> None:
     """Validate an ONNX model for correctness and compatibility.
 
     This command performs various validation checks on the model to ensure
     it meets ONNX specification and can be properly loaded and executed.
     """
+    from onnxsplit.cli.runner import RunContext, run_validate
+
     options: CliOptions = ctx.obj
 
-    if options.verbose:
-        typer.echo(f"Validating model: {model_path}")
-        typer.echo(f"Checks: {', '.join(check)}")
+    run_ctx = RunContext(
+        model_path=model_path,
+        verbose=options.verbose,
+        quiet=options.quiet,
+    )
 
-    if not options.quiet:
-        typer.echo(f"Validate {model_path} with checks: {', '.join(check)}")
+    result = run_validate(run_ctx)
+    if not result.success:
+        raise typer.Exit(1)
 
 
 if __name__ == "__main__":

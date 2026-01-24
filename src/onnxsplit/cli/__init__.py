@@ -1,4 +1,5 @@
 """CLI模块"""
+
 from onnxsplit.cli.parser import CliOptions, app
 from onnxsplit.cli.runner import run_analyze, run_split
 

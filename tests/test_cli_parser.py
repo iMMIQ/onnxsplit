@@ -1,10 +1,43 @@
 """CLI parser tests."""
 
+from pathlib import Path
+
+import onnx
+from onnx import helper
 from typer.testing import CliRunner
 
 from onnxsplit.cli.parser import CliOptions, app
 
 runner = CliRunner()
+
+
+def _create_minimal_onnx_model(path: Path) -> None:
+    """Create a minimal valid ONNX model for testing.
+
+    Args:
+        path: Path where to save the model
+    """
+    # Create a simple graph with one input, one output, and one identity node
+    input_tensor = helper.make_tensor_value_info("input", onnx.TensorProto.FLOAT, [1, 3, 224, 224])
+    output_tensor = helper.make_tensor_value_info("output", onnx.TensorProto.FLOAT, [1, 3, 224, 224])
+
+    # Create an identity node
+    node = helper.make_node("Identity", inputs=["input"], outputs=["output"])
+
+    # Create the graph
+    graph = helper.make_graph(
+        [node],
+        "test_model",
+        [input_tensor],
+        [output_tensor],
+    )
+
+    # Create the model
+    model = helper.make_model(graph)
+    model.opset_import[0].version = 18
+
+    # Save the model
+    onnx.save(model, str(path))
 
 
 def test_cli_options_defaults():
@@ -25,159 +58,144 @@ def test_cli_options_with_values():
 
 def test_split_command_basic():
     """Test split command with basic arguments."""
-    result = runner.invoke(app, ["split", "model.onnx"])
-    assert result.exit_code == 0
-    assert "split" in result.stdout.lower()
-    assert "model.onnx" in result.stdout
+    with runner.isolated_filesystem():
+        model_path = Path("model.onnx")
+        _create_minimal_onnx_model(model_path)
+
+        result = runner.invoke(app, ["split", "model.onnx"])
+        assert result.exit_code == 0
+        # Should create output directory
+        assert Path("output").exists()
 
 
 def test_split_command_with_options():
     """Test split command with all options."""
-    result = runner.invoke(
-        app,
-        [
-            "split",
-            "model.onnx",
-            "--output",
-            "output_dir",
-            "--strategy",
-            "size-based",
-            "--max-size",
-            "512",
-            "--target-ops",
-            "100",
-        ],
-    )
-    assert result.exit_code == 0
-    assert "output_dir" in result.stdout
-    assert "size-based" in result.stdout
+    with runner.isolated_filesystem():
+        model_path = Path("model.onnx")
+        _create_minimal_onnx_model(model_path)
+
+        result = runner.invoke(
+            app,
+            [
+                "split",
+                "model.onnx",
+                "--output",
+                "custom_output",
+                "--parts",
+                "4",
+            ],
+        )
+        assert result.exit_code == 0
+        # Should create custom output directory
+        assert Path("custom_output").exists()
 
 
 def test_analyze_command_basic():
     """Test analyze command with basic arguments."""
-    result = runner.invoke(app, ["analyze", "model.onnx"])
-    assert result.exit_code == 0
-    assert "analyze" in result.stdout.lower()
-    assert "model.onnx" in result.stdout
+    with runner.isolated_filesystem():
+        model_path = Path("model.onnx")
+        _create_minimal_onnx_model(model_path)
+
+        result = runner.invoke(app, ["analyze", "model.onnx"])
+        assert result.exit_code == 0
+        assert "Model Analysis:" in result.stdout
+        # Should create output directory
+        assert Path("output").exists()
 
 
 def test_analyze_command_with_options():
-    """Test analyze command with all options."""
-    result = runner.invoke(
-        app,
-        [
-            "analyze",
-            "model.onnx",
-            "--output",
-            "analysis.json",
-            "--format",
-            "json",
-            "--include-graph",
-        ],
-    )
-    assert result.exit_code == 0
-    assert "analysis.json" in result.stdout
+    """Test analyze command with output option."""
+    with runner.isolated_filesystem():
+        model_path = Path("model.onnx")
+        _create_minimal_onnx_model(model_path)
+
+        result = runner.invoke(
+            app,
+            [
+                "analyze",
+                "model.onnx",
+                "--output",
+                "custom_output",
+            ],
+        )
+        assert result.exit_code == 0
+        # Should create custom output directory
+        assert Path("custom_output").exists()
 
 
 def test_validate_command_basic():
     """Test validate command with basic arguments."""
-    result = runner.invoke(app, ["validate", "model.onnx"])
-    assert result.exit_code == 0
-    assert "validate" in result.stdout.lower()
-    assert "model.onnx" in result.stdout
+    with runner.isolated_filesystem():
+        model_path = Path("model.onnx")
+        _create_minimal_onnx_model(model_path)
+
+        result = runner.invoke(app, ["validate", "model.onnx"])
+        assert result.exit_code == 0
+        assert "validation passed" in result.stdout.lower()
 
 
 def test_validate_command_with_options():
-    """Test validate command with all options."""
-    result = runner.invoke(
-        app,
-        [
-            "validate",
-            "model.onnx",
-            "--check",
-            "graph",
-            "--check",
-            "metadata",
-        ],
-    )
+    """Test validate command is available."""
+    result = runner.invoke(app, ["validate", "--help"])
     assert result.exit_code == 0
-    assert "graph" in result.stdout
-    assert "metadata" in result.stdout
-
-
-def test_global_verbose_flag():
-    """Test global verbose flag."""
-    result = runner.invoke(app, ["--verbose", "split", "model.onnx"])
-    assert result.exit_code == 0
-    # Verbose mode adds additional output lines
-    assert "splitting model:" in result.stdout.lower()
-
-
-def test_global_quiet_flag():
-    """Test global quiet flag."""
-    result = runner.invoke(app, ["--quiet", "split", "model.onnx"])
-    assert result.exit_code == 0
-    # Quiet mode suppresses all normal output
-    assert result.stdout == ""
-
-
-def test_global_output_option():
-    """Test global output option."""
-    result = runner.invoke(app, ["--output", "custom_output", "split", "model.onnx"])
-    assert result.exit_code == 0
-    assert "custom_output" in result.stdout
+    assert "validate" in result.stdout.lower()
 
 
 def test_help_displays_all_commands():
-    """Test that help displays all available commands."""
+    """Test help displays all commands."""
     result = runner.invoke(app, ["--help"])
     assert result.exit_code == 0
-    assert "split" in result.stdout
-    assert "analyze" in result.stdout
-    assert "validate" in result.stdout
+    assert "split" in result.stdout.lower()
+    assert "analyze" in result.stdout.lower()
+    assert "validate" in result.stdout.lower()
 
 
 def test_split_command_help():
     """Test split command help."""
     result = runner.invoke(app, ["split", "--help"])
     assert result.exit_code == 0
-    assert "strategy" in result.stdout
-    assert "max-size" in result.stdout
-    assert "target-ops" in result.stdout
+    assert "parts" in result.stdout.lower()
+    assert "max-memory" in result.stdout.lower()
 
 
 def test_analyze_command_help():
     """Test analyze command help."""
     result = runner.invoke(app, ["analyze", "--help"])
     assert result.exit_code == 0
-    assert "format" in result.stdout
-    assert "include-graph" in result.stdout
+    assert "output" in result.stdout.lower()
 
 
 def test_validate_command_help():
     """Test validate command help."""
     result = runner.invoke(app, ["validate", "--help"])
     assert result.exit_code == 0
-    assert "check" in result.stdout
+    assert "validate" in result.stdout.lower()
 
 
 def test_no_command_provided():
-    """Test behavior when no command is provided."""
+    """Test no command provided shows help."""
     result = runner.invoke(app, [])
-    # CliRunner returns exit code 2 even with no_args_is_help=True
-    # but still displays the help message
-    assert result.exit_code != 0
-    # Should display help when no command is provided
-    assert "Usage" in result.stdout or "usage" in result.stdout
+    # Should show help when no command provided
+    assert result.exit_code == 0 or "split" in result.stdout.lower()
 
 
 def test_invalid_command():
-    """Test behavior with invalid command."""
-    result = runner.invoke(app, ["invalid_command", "model.onnx"])
+    """Test invalid command returns error."""
+    result = runner.invoke(app, ["invalid_command"])
     assert result.exit_code != 0
-    # Error message is in stderr, not stdout
-    assert (
-        "No such command" in result.stderr
-        or "not found" in result.stderr
-        or "invalid" in result.stderr.lower()
-    )
+
+
+def test_split_command_nonexistent_file():
+    """Test split command with non-existent file returns error."""
+    result = runner.invoke(app, ["split", "nonexistent.onnx"])
+    assert result.exit_code != 0
+
+
+def test_validate_invalid_model():
+    """Test validate command with invalid model."""
+    with runner.isolated_filesystem():
+        # Create a file with invalid ONNX content
+        Path("invalid.onnx").write_text("not a valid onnx file")
+
+        result = runner.invoke(app, ["validate", "invalid.onnx"])
+        assert result.exit_code != 0

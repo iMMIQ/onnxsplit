@@ -112,7 +112,7 @@ def _validate_model(model: ModelProto) -> bool:
     try:
         onnx.checker.check_model(model)
         return True
-    except onnx.ValidationError as e:
+    except Exception as e:
         raise ValueError(f"Model validation failed: {e}") from e
 
 
