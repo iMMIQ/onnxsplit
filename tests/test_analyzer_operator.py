@@ -1,8 +1,10 @@
 """测试算子信息结构"""
+
 import pytest
 from onnx import TensorProto, helper
-from onnxsplit.analyzer.tensor import TensorMetadata
+
 from onnxsplit.analyzer.operator import OperatorInfo
+from onnxsplit.analyzer.tensor import TensorMetadata
 
 
 def test_operator_info_creation():

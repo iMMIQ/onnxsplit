@@ -1,6 +1,8 @@
 """算子信息结构"""
+
 from dataclasses import dataclass, field
 from typing import Any
+
 from onnx import NodeProto
 
 from onnxsplit.analyzer.tensor import TensorMetadata
@@ -19,6 +21,7 @@ class OperatorInfo:
         input_names: 输入张量名称列表（可选）
         output_names: 输出张量名称列表（可选）
     """
+
     name: str
     op_type: str
     attributes: dict[str, Any]
