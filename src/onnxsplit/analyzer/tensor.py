@@ -1,7 +1,7 @@
 """张量元数据结构"""
 from dataclasses import dataclass
-from onnx import TensorProto
 
+from onnx import TensorProto
 
 _DTYPE_SIZE_MAP = {
     TensorProto.FLOAT: 4,
