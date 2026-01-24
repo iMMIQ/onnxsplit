@@ -1,4 +1,5 @@
 """切分方案数据结构"""
+
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -14,6 +15,7 @@ class SplitPlan:
         slice_ranges: 每份的索引范围 [(start, end), ...]，None时均分
         reason: 切分原因说明（可选）
     """
+
     operator_name: str
     parts: int
     axis: Optional[int] = None
@@ -83,6 +85,7 @@ class SplitReport:
         unsplit_operators: 未切分的算子数
         plans: 所有切分方案列表
     """
+
     original_operators: int
     split_operators: int
     unsplit_operators: int

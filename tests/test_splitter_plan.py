@@ -1,7 +1,6 @@
 """测试切分方案数据结构"""
-from dataclasses import asdict
+
 from onnxsplit.splitter.plan import SplitPlan, SplitReport
-from onnxsplit.splitter.axis_rules import SplitableAxes
 
 
 def test_split_plan_creation():
