@@ -1,7 +1,7 @@
 """配置合并逻辑：将命令行参数与配置文件合并"""
 from dataclasses import replace
 
-from onnxsplit.config.schema import GlobalConfig, SplitConfig
+from onnxsplit.config.schema import SplitConfig
 
 
 class ConfigMergeError(Exception):

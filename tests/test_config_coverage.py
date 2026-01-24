@@ -6,12 +6,12 @@ from pathlib import Path
 import pytest
 
 from onnxsplit.config.loader import ConfigError, load_config
-from onnxsplit.config.merger import merge_cli_args, ConfigMergeError
+from onnxsplit.config.merger import ConfigMergeError, merge_cli_args
 from onnxsplit.config.schema import (
-    GlobalConfig,
-    OperatorConfig,
     AxisRule,
+    GlobalConfig,
     MemoryRule,
+    OperatorConfig,
     SplitConfig,
 )
 

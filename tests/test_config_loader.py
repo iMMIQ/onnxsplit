@@ -7,10 +7,6 @@ import pytest
 
 from onnxsplit.config.loader import ConfigError, load_config
 from onnxsplit.config.schema import (
-    AxisRule,
-    GlobalConfig,
-    MemoryRule,
-    OperatorConfig,
     SplitConfig,
 )
 

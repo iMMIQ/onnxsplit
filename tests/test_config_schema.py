@@ -1,10 +1,9 @@
 """测试配置数据结构"""
-from dataclasses import dataclass
 from onnxsplit.config.schema import (
-    GlobalConfig,
-    OperatorConfig,
     AxisRule,
+    GlobalConfig,
     MemoryRule,
+    OperatorConfig,
     SplitConfig,
 )
 

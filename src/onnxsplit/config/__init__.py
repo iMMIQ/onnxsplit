@@ -3,16 +3,15 @@
 提供YAML配置文件的加载、验证和合并功能。
 """
 
+from onnxsplit.config.loader import ConfigError, load_config
+from onnxsplit.config.merger import ConfigMergeError, merge_cli_args
 from onnxsplit.config.schema import (
-    GlobalConfig,
-    OperatorConfig,
     AxisRule,
+    GlobalConfig,
     MemoryRule,
+    OperatorConfig,
     SplitConfig,
 )
-from onnxsplit.config.loader import load_config, ConfigError
-from onnxsplit.config.merger import merge_cli_args, ConfigMergeError
-
 
 __all__ = [
     # Schema

@@ -1,13 +1,14 @@
 """测试配置合并逻辑"""
 import pytest
+
+from onnxsplit.config.merger import ConfigMergeError, merge_cli_args
 from onnxsplit.config.schema import (
-    GlobalConfig,
-    OperatorConfig,
     AxisRule,
+    GlobalConfig,
     MemoryRule,
+    OperatorConfig,
     SplitConfig,
 )
-from onnxsplit.config.merger import merge_cli_args, ConfigMergeError
 
 
 def test_merge_cli_parts_only():
