@@ -1,0 +1,29 @@
+# 完整的测试配置
+global:
+  default_parts: 2
+  max_memory_mb: 512
+
+operators:
+  "/model/Conv_0":
+    parts: 4
+    axis: 0
+
+  "/model/MatMul_*":
+    parts: 2
+
+  "/model/LayerNorm_*":
+    parts: 1
+
+axis_rules:
+  - op_type: "Conv"
+    prefer_axis: 0
+
+  - op_type: "MatMul"
+    prefer_axis: "batch"
+
+  - op_type: "LayerNorm"
+    prefer_axis: null
+
+memory_rules:
+  auto_adjust: true
+  overflow_strategy: "binary_split"

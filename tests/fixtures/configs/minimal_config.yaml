@@ -1,0 +1,5 @@
+# 最小配置
+global:
+  default_parts: 1
+
+operators: {}

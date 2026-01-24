@@ -1,0 +1,7 @@
+# 无效配置 - parts 应该是整数
+global:
+  default_parts: "invalid"
+
+operators:
+  "/model/Conv_0":
+    parts: "not_a_number"
