@@ -1,12 +1,12 @@
 """测试切分规划器"""
-import pytest
-from onnx import TensorProto
-from onnxsplit.splitter.planner import SplitPlanner
-from onnxsplit.splitter.axis_rules import SplitableAxes
-from onnxsplit.splitter.plan import SplitPlan
-from onnxsplit.config import SplitConfig, GlobalConfig, OperatorConfig
-from onnxsplit.analyzer import ModelAnalyzer, OperatorInfo, TensorMetadata
+
 from pathlib import Path
+
+from onnx import TensorProto
+
+from onnxsplit.analyzer import ModelAnalyzer
+from onnxsplit.config import GlobalConfig, OperatorConfig, SplitConfig
+from onnxsplit.splitter.planner import SplitPlanner
 
 
 def test_planner_with_no_config():
@@ -99,23 +99,20 @@ def test_planner_with_axis_override():
 def test_planner_respects_splitable_axes():
     """测试尊重可切分轴限制"""
     # 创建虚拟分析器
-    from onnxsplit.analyzer import ModelAnalyzer
     import onnx
     from onnx import helper
 
+    from onnxsplit.analyzer import ModelAnalyzer
+
     # 创建一个简单模型
-    input_tensor = helper.make_tensor_value_info(
-        "input", TensorProto.FLOAT, [2, 3, 8, 8]
-    )
+    input_tensor = helper.make_tensor_value_info("input", TensorProto.FLOAT, [2, 3, 8, 8])
     conv_node = helper.make_node(
         "Conv",
         inputs=["input", "weight"],
         outputs=["output"],
         name="conv_0",
     )
-    output_tensor = helper.make_tensor_value_info(
-        "output", TensorProto.FLOAT, [2, 4, 8, 8]
-    )
+    output_tensor = helper.make_tensor_value_info("output", TensorProto.FLOAT, [2, 4, 8, 8])
     weight = helper.make_tensor("weight", TensorProto.FLOAT, [4, 3, 3, 3], [0.1] * 108)
     const_node = helper.make_node("Constant", [], ["weight_value"], value=weight)
     conv_node.input[1] = "weight_value"
@@ -164,13 +161,12 @@ def test_planner_parts_one_no_split():
 def test_planner_unsplitable_ops():
     """测试不可切分的算子"""
     # Reshape通常不可切分
-    from onnxsplit.analyzer import ModelAnalyzer
     import onnx
     from onnx import helper
 
-    input_tensor = helper.make_tensor_value_info(
-        "input", TensorProto.FLOAT, [2, 128]
-    )
+    from onnxsplit.analyzer import ModelAnalyzer
+
+    input_tensor = helper.make_tensor_value_info("input", TensorProto.FLOAT, [2, 128])
     reshape_node = helper.make_node(
         "Reshape",
         inputs=["input", "shape"],
@@ -179,9 +175,7 @@ def test_planner_unsplitable_ops():
     )
     shape_const = helper.make_tensor("shape", TensorProto.INT64, [3], [2, 8, 16])
     const_node = helper.make_node("Constant", [], ["shape"], value=shape_const)
-    output_tensor = helper.make_tensor_value_info(
-        "output", TensorProto.FLOAT, [2, 8, 16]
-    )
+    output_tensor = helper.make_tensor_value_info("output", TensorProto.FLOAT, [2, 8, 16])
 
     graph = helper.make_graph(
         [const_node, reshape_node],
@@ -223,7 +217,7 @@ def test_planner_get_all_splitable_ops():
     analyzer = ModelAnalyzer.from_path(model_path)
     config = SplitConfig(global_config=GlobalConfig(default_parts=2))
 
-    planner = SplitPlanner(analyzer)
+    planner = SplitPlanner(analyzer, config)
 
     splitable = planner.get_splitable_operators()
     assert len(splitable) > 0
@@ -233,15 +227,10 @@ def test_planner_get_all_splitable_ops():
 
 def test_planner_with_empty_model():
     """测试空模型"""
-    import onnx
     from onnx import helper
 
-    input_tensor = helper.make_tensor_value_info(
-        "input", TensorProto.FLOAT, [1, 3, 8, 8]
-    )
-    output_tensor = helper.make_tensor_value_info(
-        "output", TensorProto.FLOAT, [1, 3, 8, 8]
-    )
+    input_tensor = helper.make_tensor_value_info("input", TensorProto.FLOAT, [1, 3, 8, 8])
+    output_tensor = helper.make_tensor_value_info("output", TensorProto.FLOAT, [1, 3, 8, 8])
     graph = helper.make_graph([], "empty", [input_tensor], [output_tensor])
     model = helper.make_model(graph)
 
@@ -278,9 +267,7 @@ def test_planner_dynamic_shape_handling():
     from onnx import helper
 
     # 动态batch维度
-    input_tensor = helper.make_tensor_value_info(
-        "input", TensorProto.FLOAT, ["batch_dim", 3, 8, 8]
-    )
+    input_tensor = helper.make_tensor_value_info("input", TensorProto.FLOAT, ["batch_dim", 3, 8, 8])
     output_tensor = helper.make_tensor_value_info(
         "output", TensorProto.FLOAT, ["batch_dim", 4, 8, 8]
     )
@@ -306,7 +293,7 @@ def test_planner_dynamic_shape_handling():
     config = SplitConfig(global_config=GlobalConfig(default_parts=2))
 
     planner = SplitPlanner(analyzer, config)
-    report = planner.generate()
+    _ = planner.generate()  # 动态形状处理待完善
 
     # 动态形状的算子应该被标记
     # 实际实现中可能需要特殊处理

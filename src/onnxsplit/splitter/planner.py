@@ -1,12 +1,13 @@
 """切分规划器"""
+
 import fnmatch
 from typing import Optional
 
 from onnxsplit.analyzer.model import ModelAnalyzer
 from onnxsplit.analyzer.operator import OperatorInfo
+from onnxsplit.config import SplitConfig
 from onnxsplit.splitter.axis_rules import AxisAnalyzer, SplitableAxes
 from onnxsplit.splitter.plan import SplitPlan, SplitReport
-from onnxsplit.config import SplitConfig, GlobalConfig, OperatorConfig
 
 
 class SplitPlanner:
@@ -149,8 +150,4 @@ class SplitPlanner:
         if not self._splitable_ops:
             self._analyze_splitability()
 
-        return [
-            op_info
-            for op_info, splitable in self._splitable_ops.values()
-            if splitable.axes
-        ]
+        return [op_info for op_info, splitable in self._splitable_ops.values() if splitable.axes]
