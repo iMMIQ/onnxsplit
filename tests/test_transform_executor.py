@@ -52,14 +52,14 @@ class TestGraphTransformerInitialization:
         transformer = GraphTransformer(analyzer)
 
         assert transformer.analyzer == analyzer
-        assert isinstance(transformer._node_map, dict)
-        assert isinstance(transformer._tensor_map, dict)
 
 
 class TestApplySplitPlan:
     """测试apply_split_plan方法"""
 
-    def test_apply_split_plan_returns_model(self, simple_conv_model: ModelProto, simple_split_plan: SplitPlan) -> None:
+    def test_apply_split_plan_returns_model(
+        self, simple_conv_model: ModelProto, simple_split_plan: SplitPlan
+    ) -> None:
         """测试apply_split_plan返回ModelProto"""
         analyzer = ModelAnalyzer(simple_conv_model)
         transformer = GraphTransformer(analyzer)
@@ -79,7 +79,9 @@ class TestApplySplitPlan:
         assert result is not simple_conv_model  # 应该是副本
         assert len(result.graph.node) == len(simple_conv_model.graph.node)
 
-    def test_apply_split_plan_invalid_operator_raises_error(self, simple_conv_model: ModelProto) -> None:
+    def test_apply_split_plan_invalid_operator_raises_error(
+        self, simple_conv_model: ModelProto
+    ) -> None:
         """测试不存在的算子抛出ValueError"""
         analyzer = ModelAnalyzer(simple_conv_model)
         transformer = GraphTransformer(analyzer)
@@ -189,9 +191,9 @@ class TestUpdateGraphNodes:
         transformer = GraphTransformer(analyzer)
 
         # 克隆模型进行测试
-        test_model = onnx.load(str(
-            Path(__file__).parent / "fixtures" / "models" / "simple_conv.onnx"
-        ))
+        test_model = onnx.load(
+            str(Path(__file__).parent / "fixtures" / "models" / "simple_conv.onnx")
+        )
 
         original_node_count = len(test_model.graph.node)
         to_remove = [test_model.graph.node[0]]

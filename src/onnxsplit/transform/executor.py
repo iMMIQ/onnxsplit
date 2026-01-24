@@ -1,14 +1,13 @@
 """图变换执行器"""
+
 import copy
-from typing import Optional
 
 import onnx
-from onnx import helper
 
 from onnxsplit.analyzer.model import ModelAnalyzer
 from onnxsplit.splitter.plan import SplitPlan
-from onnxsplit.transform.node_clone import clone_node, generate_split_name
-from onnxsplit.transform.split_concat import create_split_node, create_concat_node, get_slice_initializers
+from onnxsplit.transform.node_clone import clone_node
+from onnxsplit.transform.split_concat import create_concat_node, create_split_node
 
 
 class GraphTransformer:
@@ -24,8 +23,6 @@ class GraphTransformer:
             analyzer: 模型分析器
         """
         self.analyzer = analyzer
-        self._node_map: dict[str, list[onnx.NodeProto]] = {}
-        self._tensor_map: dict[str, str] = {}
 
     def apply_split_plan(self, plan: SplitPlan) -> onnx.ModelProto:
         """应用切分方案到模型
@@ -73,23 +70,22 @@ class GraphTransformer:
             )
             cloned_nodes.append(cloned)
 
-        # 移除原始节点，添加克隆节点
-        nodes_to_remove = []
+        # 准备节点添加/移除列表
+        nodes_to_remove = [target_node]
         nodes_to_add = []
-        for node in new_graph.node:
-            if node.name == plan.operator_name:
-                nodes_to_remove.append(node)
-                # 插入输入切分（如果需要）
-                if self._needs_input_split(target_node):
-                    split_nodes = self._create_input_splits(target_node, plan)
-                    nodes_to_add.extend(split_nodes)
-                # 添加克隆节点
-                nodes_to_add.extend(cloned_nodes)
-                # 插入输出合并（如果需要）
-                if self._needs_output_merge(target_node):
-                    concat_nodes = self._create_output_merges(target_node, plan)
-                    nodes_to_add.extend(concat_nodes)
-                break
+
+        # 插入输入切分（如果需要）
+        if self._needs_input_split(target_node):
+            split_nodes = self._create_input_splits(target_node, plan)
+            nodes_to_add.extend(split_nodes)
+
+        # 添加克隆节点
+        nodes_to_add.extend(cloned_nodes)
+
+        # 插入输出合并（如果需要）
+        if self._needs_output_merge(target_node):
+            concat_nodes = self._create_output_merges(target_node, plan)
+            nodes_to_add.extend(concat_nodes)
 
         # 更新图
         self._update_graph_nodes(new_graph, nodes_to_remove, nodes_to_add)
@@ -121,9 +117,7 @@ class GraphTransformer:
         """检查张量是否是模型输出"""
         return any(output.name == tensor_name for output in self.analyzer.model.graph.output)
 
-    def _create_input_splits(
-        self, node: onnx.NodeProto, plan: SplitPlan
-    ) -> list[onnx.NodeProto]:
+    def _create_input_splits(self, node: onnx.NodeProto, plan: SplitPlan) -> list[onnx.NodeProto]:
         """创建输入切分节点"""
         split_nodes = []
 
@@ -145,9 +139,7 @@ class GraphTransformer:
 
         return split_nodes
 
-    def _create_output_merges(
-        self, node: onnx.NodeProto, plan: SplitPlan
-    ) -> list[onnx.NodeProto]:
+    def _create_output_merges(self, node: onnx.NodeProto, plan: SplitPlan) -> list[onnx.NodeProto]:
         """创建输出合并节点"""
         concat_nodes = []
 
@@ -166,10 +158,7 @@ class GraphTransformer:
 
     def _is_weight(self, tensor_name: str) -> bool:
         """检查张量是否是权重"""
-        return any(
-            init.name == tensor_name
-            for init in self.analyzer.model.graph.initializer
-        )
+        return any(init.name == tensor_name for init in self.analyzer.model.graph.initializer)
 
     def _update_graph_nodes(
         self,
