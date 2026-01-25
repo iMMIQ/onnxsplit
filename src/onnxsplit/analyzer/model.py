@@ -26,7 +26,9 @@ class ModelAnalyzer:
         self.graph = model.graph
         self._shape_map: dict[str, tuple[int, ...]] = {}
         self._dtype_map: dict[str, int] = {}
+        self._operator_cache: dict[str, OperatorInfo] = {}
         self._build_tensor_info()
+        self._build_operator_cache()
 
     @classmethod
     def from_path(cls, path: Path | str) -> "ModelAnalyzer":
@@ -79,6 +81,33 @@ class ModelAnalyzer:
             self._shape_map[name] = shape
             self._dtype_map[name] = dtype
 
+    def _build_operator_cache(self) -> None:
+        """构建算子缓存，实现O(1)查询"""
+        for node in self.graph.node:
+            # 跳过常量
+            if node.op_type == "Constant":
+                continue
+
+            op_info = OperatorInfo.from_node_proto(node)
+
+            # 添加输入张量信息
+            for input_name in node.input:
+                if not input_name:  # 空输入（可选输入）
+                    continue
+                shape = self._get_tensor_shape(input_name)
+                dtype = self._get_tensor_dtype(input_name)
+                if shape:  # 只有已知形状才添加
+                    op_info.input_tensors.append(TensorMetadata(input_name, shape, dtype))
+
+            # 添加输出张量信息
+            for output_name in node.output:
+                shape = self._get_tensor_shape(output_name)
+                dtype = self._get_tensor_dtype(output_name)
+                if shape:
+                    op_info.output_tensors.append(TensorMetadata(output_name, shape, dtype))
+
+            self._operator_cache[op_info.name] = op_info
+
     def _get_tensor_shape(self, name: str) -> tuple[int, ...]:
         """获取张量形状"""
         return self._shape_map.get(name, ())
@@ -121,34 +150,7 @@ class ModelAnalyzer:
         Returns:
             算子信息列表
         """
-        operators = []
-
-        for node in self.graph.node:
-            # 跳过常量
-            if node.op_type == "Constant":
-                continue
-
-            op_info = OperatorInfo.from_node_proto(node)
-
-            # 添加输入张量信息
-            for input_name in node.input:
-                if not input_name:  # 空输入（可选输入）
-                    continue
-                shape = self._get_tensor_shape(input_name)
-                dtype = self._get_tensor_dtype(input_name)
-                if shape:  # 只有已知形状才添加
-                    op_info.input_tensors.append(TensorMetadata(input_name, shape, dtype))
-
-            # 添加输出张量信息
-            for output_name in node.output:
-                shape = self._get_tensor_shape(output_name)
-                dtype = self._get_tensor_dtype(output_name)
-                if shape:
-                    op_info.output_tensors.append(TensorMetadata(output_name, shape, dtype))
-
-            operators.append(op_info)
-
-        return operators
+        return list(self._operator_cache.values())
 
     def get_operator(self, name: str) -> Optional[OperatorInfo]:
         """按名称获取算子
@@ -159,10 +161,7 @@ class ModelAnalyzer:
         Returns:
             算子信息，不存在时返回None
         """
-        for op in self.get_operators():
-            if op.name == name:
-                return op
-        return None
+        return self._operator_cache.get(name)
 
     def get_tensor_producer(self, tensor_name: str) -> Optional[str]:
         """获取产生指定张量的算子名称

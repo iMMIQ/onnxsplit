@@ -144,3 +144,41 @@ def test_analyzer_constant_skipped():
     ops = analyzer.get_operators()
     for op in ops:
         assert op.op_type != "Constant"
+
+
+def test_analyzer_get_operator_cached():
+    """测试算子查询使用缓存"""
+    model_path = Path("tests/fixtures/models/model_with_branches.onnx")
+    analyzer = ModelAnalyzer.from_path(model_path)
+
+    # 多次查询应该返回相同结果
+    op1 = analyzer.get_operator("Conv_conv1_out")
+    op2 = analyzer.get_operator("Conv_conv1_out")
+    op3 = analyzer.get_operator("Conv_conv2_out")
+
+    assert op1 is op2  # 同一个对象引用（缓存）
+    assert op1 is not None
+    assert op3 is not None
+    assert op1.name == "Conv_conv1_out"
+    assert op3.name == "Conv_conv2_out"
+
+
+def test_analyzer_get_operator_nonexistent_returns_none():
+    """测试查询不存在的算子返回None（优化后行为不变）"""
+    model_path = Path("tests/fixtures/models/simple_conv.onnx")
+    analyzer = ModelAnalyzer.from_path(model_path)
+
+    op = analyzer.get_operator("definitely_not_exists")
+    assert op is None
+
+
+def test_analyzer_all_operators_accessible():
+    """测试所有算子都可通过名称访问"""
+    model_path = Path("tests/fixtures/models/model_with_branches.onnx")
+    analyzer = ModelAnalyzer.from_path(model_path)
+
+    all_ops = analyzer.get_operators()
+    for op in all_ops:
+        by_name = analyzer.get_operator(op.name)
+        assert by_name is not None
+        assert by_name.name == op.name
