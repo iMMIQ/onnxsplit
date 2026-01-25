@@ -210,3 +210,46 @@ def test_estimate_tensor_memory_large():
     # 1000x1000x1000 FLOAT32 = 4GB
     mem = estimate_tensor_memory((1000, 1000, 1000), TensorProto.FLOAT)
     assert mem == 4_000_000_000
+
+
+def test_estimator_peak_memory_tracked():
+    """测试峰值内存在构建时被跟踪"""
+    model_path = Path("tests/fixtures/models/simple_conv.onnx")
+    analyzer = ModelAnalyzer.from_path(model_path)
+    estimator = MemoryEstimator(analyzer)
+
+    # 多次调用应该返回相同值
+    peak1 = estimator.get_peak_memory()
+    peak2 = estimator.get_peak_memory()
+
+    assert peak1 == peak2
+    assert peak1 > 0
+
+
+def test_estimator_peak_memory_is_maximum():
+    """测试峰值内存是所有算子内存的最大值"""
+    model_path = Path("tests/fixtures/models/simple_conv.onnx")
+    analyzer = ModelAnalyzer.from_path(model_path)
+    estimator = MemoryEstimator(analyzer)
+
+    peak = estimator.get_peak_memory()
+    breakdown = estimator.get_memory_breakdown()
+
+    if breakdown:
+        max_op_memory = max(info.peak_memory_mb for info in breakdown)
+        assert peak == max_op_memory
+
+
+def test_estimator_empty_model_peak_memory():
+    """测试空模型峰值内存为0"""
+    from onnx import helper
+
+    input_tensor = helper.make_tensor_value_info("input", TensorProto.FLOAT, [1, 3, 8, 8])
+    output_tensor = helper.make_tensor_value_info("output", TensorProto.FLOAT, [1, 3, 8, 8])
+    graph = helper.make_graph([], "empty", [input_tensor], [output_tensor])
+    model = helper.make_model(graph)
+
+    analyzer = ModelAnalyzer.from_model_proto(model)
+    estimator = MemoryEstimator(analyzer)
+
+    assert estimator.get_peak_memory() == 0.0

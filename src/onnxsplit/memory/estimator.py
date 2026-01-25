@@ -84,6 +84,7 @@ class MemoryEstimator:
         self.analyzer = analyzer
         self._tensor_memory: dict[str, TensorMemoryInfo] = {}
         self._operator_memory: dict[str, OperatorMemoryInfo] = {}
+        self._peak_memory_mb: float = 0.0
         self._build_memory_info()
 
     def _build_memory_info(self) -> None:
@@ -156,6 +157,11 @@ class MemoryEstimator:
                     weights_memory += self._tensor_memory[input_name].memory_bytes
 
         total_memory = input_memory + output_memory + weights_memory
+        total_memory_mb = total_memory / MB
+
+        # 更新峰值内存
+        if total_memory_mb > self._peak_memory_mb:
+            self._peak_memory_mb = total_memory_mb
 
         self._operator_memory[op_info.name] = OperatorMemoryInfo(
             operator_name=op_info.name,
@@ -163,8 +169,8 @@ class MemoryEstimator:
             input_memory_mb=input_memory / MB,
             output_memory_mb=output_memory / MB,
             weights_memory_mb=weights_memory / MB,
-            total_memory_mb=total_memory / MB,
-            peak_memory_mb=total_memory / MB,  # 简化估算
+            total_memory_mb=total_memory_mb,
+            peak_memory_mb=total_memory_mb,  # 简化估算
         )
 
     def _is_weight(self, tensor_name: str) -> bool:
@@ -185,9 +191,7 @@ class MemoryEstimator:
 
     def get_peak_memory(self) -> float:
         """获取峰值内存（MB）"""
-        if not self._operator_memory:
-            return 0.0
-        return max(info.peak_memory_mb for info in self._operator_memory.values())
+        return self._peak_memory_mb
 
     def get_memory_breakdown(self) -> list[OperatorMemoryInfo]:
         """获取内存分解"""
