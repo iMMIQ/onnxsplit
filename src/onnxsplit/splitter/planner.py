@@ -1,13 +1,31 @@
 """切分规划器"""
 
-import fnmatch
-from typing import Optional
+from dataclasses import dataclass
+from fnmatch import translate
+from re import compile
+from typing import Optional, Pattern
+from typing import TYPE_CHECKING
 
 from onnxsplit.analyzer.model import ModelAnalyzer
 from onnxsplit.analyzer.operator import OperatorInfo
-from onnxsplit.config import SplitConfig
+from onnxsplit.config import OperatorConfig, SplitConfig
 from onnxsplit.splitter.axis_rules import AxisAnalyzer, SplitableAxes
 from onnxsplit.splitter.plan import SplitPlan, SplitReport
+
+@dataclass(frozen=True)
+class CompiledPattern:
+    """编译后的通配符模式
+
+    Attributes:
+        pattern: 原始模式字符串
+        regex: 编译后的正则表达式
+        is_wildcard: 是否为通配符模式
+        config: 关联的算子配置
+    """
+    pattern: str
+    regex: Pattern[str]
+    is_wildcard: bool
+    config: OperatorConfig
 
 
 class SplitPlanner:
@@ -27,6 +45,9 @@ class SplitPlanner:
         self.config = config if config is not None else SplitConfig()
         self.axis_analyzer = AxisAnalyzer()
         self._splitable_ops: dict[str, tuple[OperatorInfo, SplitableAxes]] = {}
+        self._compiled_patterns: list[CompiledPattern] = []
+        self._exact_match_patterns: dict[str, OperatorConfig] = {}
+        self._compile_config_patterns()
 
     def generate(self) -> SplitReport:
         """生成切分方案
@@ -128,18 +149,48 @@ class SplitPlanner:
         Returns:
             (parts, axis) 元组
         """
-        # 1. 精确匹配
-        if op_name in self.config.operators:
-            op_config = self.config.operators[op_name]
+        # 1. 精确匹配 (O(1))
+        if op_name in self._exact_match_patterns:
+            op_config = self._exact_match_patterns[op_name]
             return (op_config.parts, op_config.axis)
 
-        # 2. 通配符匹配
-        for pattern, op_config in self.config.operators.items():
-            if fnmatch.fnmatch(op_name, pattern):
-                return (op_config.parts, op_config.axis)
+        # 2. 通配符匹配 (按配置顺序遍历，但使用预编译的regex)
+        for compiled_pattern in self._compiled_patterns:
+            if compiled_pattern.regex.match(op_name):
+                return (compiled_pattern.config.parts, compiled_pattern.config.axis)
 
         # 3. 全局配置
         return (self.config.global_config.default_parts, None)
+
+    def _compile_config_patterns(self) -> None:
+        """编译配置中的通配符模式
+
+        将精确匹配和通配符模式分离，预编译通配符为正则表达式。
+        这样精确匹配是O(1)，通配符匹配只需要遍历通配符模式列表。
+        """
+        self._exact_match_patterns.clear()
+        self._compiled_patterns.clear()
+
+        for pattern, config in self.config.operators.items():
+            # 检查是否为通配符模式
+            is_wildcard = any(char in pattern for char in "*?[")
+
+            if not is_wildcard:
+                # 精确匹配，存入字典实现O(1)查找
+                self._exact_match_patterns[pattern] = config
+            else:
+                # 通配符模式，预编译为正则表达式
+                # fnmatch.translate将通配符转换为正则表达式
+                regex_str = translate(pattern)
+                compiled_regex = compile(regex_str)
+                self._compiled_patterns.append(
+                    CompiledPattern(
+                        pattern=pattern,
+                        regex=compiled_regex,
+                        is_wildcard=True,
+                        config=config,
+                    )
+                )
 
     def get_splitable_operators(self) -> list[OperatorInfo]:
         """获取所有可切分的算子列表

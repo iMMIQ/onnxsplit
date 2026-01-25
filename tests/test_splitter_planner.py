@@ -297,3 +297,104 @@ def test_planner_dynamic_shape_handling():
 
     # 动态形状的算子应该被标记
     # 实际实现中可能需要特殊处理
+
+
+def test_planner_config_exact_match_priority():
+    """测试精确匹配优先于通配符"""
+    model_path = Path("tests/fixtures/models/model_with_branches.onnx")
+    analyzer = ModelAnalyzer.from_path(model_path)
+    config = SplitConfig(
+        global_config=GlobalConfig(default_parts=1),
+        operators={
+            "conv_0": OperatorConfig(parts=10, axis=0),  # 精确匹配
+            "conv_*": OperatorConfig(parts=5, axis=0),   # 通配符匹配
+            "*": OperatorConfig(parts=2),                 # 全局通配符
+        },
+    )
+
+    planner = SplitPlanner(analyzer, config)
+    report = planner.generate()
+
+    conv_0_plan = report.get_plan("conv_0")
+    if conv_0_plan:
+        assert conv_0_plan.parts == 10  # 使用精确匹配，不是5或2
+
+
+def test_planner_config_wildcard_star():
+    """测试*通配符匹配所有"""
+    model_path = Path("tests/fixtures/models/simple_conv.onnx")
+    analyzer = ModelAnalyzer.from_path(model_path)
+    config = SplitConfig(
+        global_config=GlobalConfig(default_parts=1),
+        operators={
+            "*": OperatorConfig(parts=3),  # 匹配所有
+        },
+    )
+
+    planner = SplitPlanner(analyzer, config)
+    report = planner.generate()
+
+    # 可切分的算子都应该使用parts=3
+    for plan in report.plans:
+        assert plan.parts == 3
+
+
+def test_planner_config_multiple_wildcards():
+    """测试多个通配符模式"""
+    model_path = Path("tests/fixtures/models/model_with_branches.onnx")
+    analyzer = ModelAnalyzer.from_path(model_path)
+    config = SplitConfig(
+        global_config=GlobalConfig(default_parts=1),
+        operators={
+            "conv_*": OperatorConfig(parts=4, axis=0),
+            "*_output": OperatorConfig(parts=2),
+        },
+    )
+
+    planner = SplitPlanner(analyzer, config)
+    report = planner.generate()
+
+    # Conv算子应该匹配conv_*
+    conv_plans = [p for p in report.plans if p.operator_name.startswith("conv_")]
+    for plan in conv_plans:
+        assert plan.parts == 4
+
+
+def test_planner_config_question_mark_wildcard():
+    """测试?通配符匹配单个字符"""
+    model_path = Path("tests/fixtures/models/simple_conv.onnx")
+    analyzer = ModelAnalyzer.from_path(model_path)
+    config = SplitConfig(
+        global_config=GlobalConfig(default_parts=1),
+        operators={
+            "conv_?": OperatorConfig(parts=7),  # 匹配conv_0, conv_1等
+        },
+    )
+
+    planner = SplitPlanner(analyzer, config)
+    report = planner.generate()
+
+    conv_plan = report.get_plan("conv_0")
+    if conv_plan:
+        assert conv_plan.parts == 7
+
+
+def test_planner_config_bracket_wildcard():
+    """测试[]字符类通配符"""
+    model_path = Path("tests/fixtures/models/model_with_branches.onnx")
+    analyzer = ModelAnalyzer.from_path(model_path)
+    config = SplitConfig(
+        global_config=GlobalConfig(default_parts=1),
+        operators={
+            "conv_[01]": OperatorConfig(parts=6),  # 匹配conv_0或conv_1
+        },
+    )
+
+    planner = SplitPlanner(analyzer, config)
+    report = planner.generate()
+
+    # conv_0或conv_1应该匹配
+    for name in ["conv_0", "conv_1"]:
+        plan = report.get_plan(name)
+        if plan:
+            assert plan.parts == 6
