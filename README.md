@@ -60,6 +60,9 @@ onnxsplit split model.onnx --parts 4 --output output_dir
 # Limit memory per split (in MB)
 onnxsplit split model.onnx --max-memory 1024 --output output_dir
 
+# Verify output equivalence using onnxruntime (optional)
+onnxsplit split model.onnx --parts 2 --verify
+
 # Verbose output
 onnxsplit split -v model.onnx --parts 2
 ```
@@ -70,7 +73,10 @@ Model split successfully!
   Output: output_dir/split_model.onnx
   Report: output_dir/split_report.json
   Summary: SplitReport: 5/65 operators split (7.7%), total 2 parts
+  ✓ Verification passed: 1 outputs match
 ```
+
+> **Note**: The `--verify` option requires onnxruntime. If not installed, verification will be skipped with a warning.
 
 ## Python API
 
@@ -96,6 +102,14 @@ for plan in report.plans:
 # Save result
 import onnx
 onnx.save(model, "split_model.onnx")
+
+# Verify equivalence (requires onnxruntime)
+from onnxsplit import verify_equivalence
+result = verify_equivalence(original_model, model)
+if result.success:
+    print(f"Verification passed: {result.outputs_compared} outputs match")
+elif result.skipped:
+    print(f"Verification skipped: {result.skip_reason}")
 ```
 
 ## Features
@@ -103,6 +117,7 @@ onnx.save(model, "split_model.onnx")
 - **Operator splitting**: Split large operators by partitioning inputs/outputs
 - **Memory estimation**: Calculate memory usage for operators and tensors
 - **Auto adjustment**: Automatically determine optimal split count based on memory limits
+- **Output verification**: Verify split model produces same outputs as original using onnxruntime
 - **Configurable rules**: YAML-based configuration for split strategies per operator type
 - **CLI & API**: Use as command-line tool or Python library
 

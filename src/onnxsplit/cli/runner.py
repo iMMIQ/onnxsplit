@@ -35,6 +35,7 @@ class RunContext:
         cli_max_memory: Max memory from CLI argument in MB (optional)
         verbose: Enable verbose output
         quiet: Suppress non-error output
+        verify: Verify split model equivalence using onnxruntime
     """
 
     model_path: str
@@ -44,6 +45,7 @@ class RunContext:
     cli_max_memory: Optional[int] = None
     verbose: bool = False
     quiet: bool = False
+    verify: bool = False
 
 
 @dataclass
@@ -311,6 +313,39 @@ def run_split(ctx: RunContext) -> RunResult:
             typer.echo(f"Saving report to: {report_path}")
 
         _generate_report(report, str(report_path))
+
+        # Verify model equivalence if requested
+        verify_result = None
+        if ctx.verify:
+            if ctx.verbose:
+                typer.echo("Verifying model equivalence...")
+
+            from onnxsplit.verify import verify_equivalence
+
+            verify_result = verify_equivalence(
+                original_model=model,
+                split_model=transformed_model,
+                rtol=1e-4,
+                atol=1e-5,
+                verbose=ctx.verbose,
+            )
+
+            if verify_result.skipped:
+                typer.echo(
+                    typer.style(f"  ⚠ Verification skipped: {verify_result.skip_reason}", fg=typer.colors.YELLOW)
+                )
+            elif verify_result.success:
+                typer.echo(
+                    typer.style(f"  ✓ Verification passed: {verify_result.outputs_compared} outputs match", fg=typer.colors.GREEN)
+                )
+                if ctx.verbose and verify_result.max_diff > 0:
+                    typer.echo(f"    Max difference: {verify_result.max_diff:.2e}")
+            else:
+                typer.echo(
+                    typer.style(f"  ✗ Verification failed: outputs differ", fg=typer.colors.RED)
+                )
+                if ctx.verbose:
+                    typer.echo(f"    Max difference: {verify_result.max_diff:.2e}")
 
         if not ctx.quiet:
             typer.echo("Model split successfully!")

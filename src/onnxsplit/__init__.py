@@ -14,6 +14,7 @@ from onnxsplit.memory import (
 )
 from onnxsplit.splitter import SplitPlan, SplitPlanner
 from onnxsplit.transform import GraphTransformer
+from onnxsplit.verify import VerifyResult, verify_equivalence
 
 __all__ = [
     # Version
@@ -34,4 +35,7 @@ __all__ = [
     "SplitPlan",
     # Transform
     "GraphTransformer",
+    # Verify
+    "verify_equivalence",
+    "VerifyResult",
 ]

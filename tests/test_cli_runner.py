@@ -100,6 +100,7 @@ class TestRunContext:
         assert ctx.cli_max_memory is None
         assert ctx.verbose is False
         assert ctx.quiet is False
+        assert ctx.verify is False
 
 
 class TestRunSplit:
@@ -113,6 +114,7 @@ class TestRunSplit:
             output_dir=str(output_dir),
             verbose=False,
             quiet=False,
+            verify=True,
         )
 
         # Should not raise
@@ -153,6 +155,7 @@ class TestRunSplit:
             cli_max_memory=1500,
             verbose=False,
             quiet=False,
+            verify=True,
         )
 
         # Should not raise
@@ -214,6 +217,7 @@ class TestRunSplit:
             output_dir=str(output_dir),
             verbose=True,
             quiet=False,
+            verify=True,
         )
 
         run_split(ctx)
@@ -221,6 +225,8 @@ class TestRunSplit:
         captured = capsys.readouterr()
         # Check for verbose output
         assert "model" in captured.out.lower() or "split" in captured.out.lower()
+        # Check for verification output
+        assert "verification" in captured.out.lower() or "verif" in captured.out.lower()
 
     def test_run_split_quiet_mode(
         self, simple_onnx_model: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
@@ -248,6 +254,7 @@ class TestRunSplit:
             output_dir=str(output_dir),
             verbose=False,
             quiet=False,
+            verify=True,
         )
 
         run_split(ctx)

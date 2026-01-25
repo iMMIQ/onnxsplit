@@ -199,3 +199,24 @@ def test_validate_invalid_model():
 
         result = runner.invoke(app, ["validate", "invalid.onnx"])
         assert result.exit_code != 0
+
+
+def test_split_command_help_shows_verify():
+    """Test split command help shows verify option."""
+    result = runner.invoke(app, ["split", "--help"])
+    assert result.exit_code == 0
+    assert "verify" in result.stdout.lower()
+
+
+def test_split_command_with_verify_option():
+    """Test split command with verify option."""
+    with runner.isolated_filesystem():
+        model_path = Path("model.onnx")
+        _create_minimal_onnx_model(model_path)
+
+        result = runner.invoke(app, ["split", "model.onnx", "--verify"])
+        # Command should succeed even if onnxruntime is not available
+        assert result.exit_code == 0
+        assert Path("output").exists()
+        # Should show verification output (either passed or skipped)
+        assert "verification" in result.stdout.lower() or "verify" in result.stdout.lower()

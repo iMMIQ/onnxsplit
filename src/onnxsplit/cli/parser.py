@@ -74,6 +74,11 @@ def split(
         "-o",
         help="Output directory for generated files.",
     ),
+    verify: bool = typer.Option(
+        False,
+        "--verify",
+        help="Verify split model produces same outputs as original using onnxruntime.",
+    ),
 ) -> None:
     """Split an ONNX model into smaller components.
 
@@ -93,6 +98,7 @@ def split(
         cli_max_memory=max_memory,
         verbose=options.verbose,
         quiet=options.quiet,
+        verify=verify,
     )
 
     result = run_split(run_ctx)
