@@ -12,6 +12,7 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
     "pytest>=8.0.0",
+    "pytest-benchmark>=4.0.0",
     "pyyaml>=6.0.0",
     "black>=24.0.0",
     "ruff>=0.1.0",
@@ -37,3 +38,4 @@ ignore = ["E501"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
+python_functions = "test_* benchmark_*"

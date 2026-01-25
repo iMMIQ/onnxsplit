@@ -31,3 +31,5 @@ split_test/
 *_test/
 *_output/
 reports/
+.hypothesis/
+.benchmarks/
