@@ -334,9 +334,7 @@ class TestCLIWithRuntime:
     def test_split_model_validatable(self, resnet18_model_path: Path) -> None:
         """测试split后的模型可以被onnxruntime加载
 
-        注意：此测试目前失败，因为当batch_size=1时，默认split成2份
-        会导致"不均匀分割"错误。这是一个已知bug，需要修复split逻辑
-        来正确处理小batch场景。
+        由于batch_size=1不能被2整除，现在split逻辑会跳过这种情况。
         """
         with runner.isolated_filesystem():
             model_path = Path("resnet18.onnx")
@@ -344,23 +342,15 @@ class TestCLIWithRuntime:
 
             result = runner.invoke(
                 app,
-                ["split", str(model_path), "--no-simplify", "--output", "output"]
+                ["split", str(model_path), "--verify", "--output", "output"]
             )
 
             assert result.exit_code == 0
 
-            # 尝试用onnxruntime加载
+            # 用onnxruntime加载split后的模型
             split_model_path = Path("output") / "split_model.onnx"
-            try:
-                sess = ort.InferenceSession(str(split_model_path))
-                assert sess is not None
-            except Exception as e:
-                if "evenly splittable" in str(e):
-                    pytest.skip(
-                        "Known bug: batch_size=1 cannot be split into 2 parts evenly. "
-                        "Split logic should handle this case properly."
-                    )
-                raise
+            sess = ort.InferenceSession(str(split_model_path))
+            assert sess is not None
 
     def test_analyze_report_matches_model(self, resnet18_model_path: Path) -> None:
         """测试analyze报告与实际模型一致"""
@@ -386,15 +376,20 @@ class TestCLIWithRuntime:
             assert len(sess.get_outputs()) == len(report["outputs"])
 
     def test_split_model_with_simplify_validatable(self, resnet18_model_path: Path) -> None:
-        """测试simplify后的模型可以被onnxruntime加载"""
+        """测试simplify后的模型可以被onnxruntime加载
+
+        此测试同时验证：
+        1. onnxsim 简化成功（默认开启）
+        2. onnxruntime 可以加载简化后的模型
+        """
         with runner.isolated_filesystem():
             model_path = Path("resnet18.onnx")
             model_path.write_bytes(resnet18_model_path.read_bytes())
 
-            # 默认开启simplify
+            # 默认开启simplify和verify
             result = runner.invoke(
                 app,
-                ["split", str(model_path), "--output", "output"]
+                ["split", str(model_path), "--verify", "--output", "output"]
             )
 
             if result.exit_code != 0:
@@ -402,10 +397,7 @@ class TestCLIWithRuntime:
                     pytest.skip("onnxsim validation failed - this is a bug to fix")
                 pytest.skip(f"Split failed: {result.stderr}")
 
-            # 尝试用onnxruntime加载simplify后的模型
+            # 用onnxruntime加载simplify后的模型
             split_model_path = Path("output") / "split_model.onnx"
-            try:
-                sess = ort.InferenceSession(str(split_model_path))
-                assert sess is not None
-            except Exception as e:
-                pytest.skip(f"onnxruntime cannot load simplified model: {e}")
+            sess = ort.InferenceSession(str(split_model_path))
+            assert sess is not None

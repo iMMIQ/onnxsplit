@@ -131,12 +131,75 @@ class SplitPlanner:
         if axis is None:
             return None
 
+        # 检查输入形状是否支持均匀分割
+        if not self._is_evenly_splittable(op_info, axis, parts):
+            return None
+
         return SplitPlan(
             operator_name=op_info.name,
             parts=parts,
             axis=axis,
             reason=splitable_axes.reason,
         )
+
+    def _is_evenly_splittable(
+        self,
+        op_info: OperatorInfo,
+        axis: int,
+        parts: int,
+    ) -> bool:
+        """检查算子是否可以在指定轴上均匀分割
+
+        Args:
+            op_info: 算子信息
+            axis: 切分轴
+            parts: 切分份数
+
+        Returns:
+            True如果可以均匀分割，False否则
+        """
+        # 检查所有输入张量
+        for tensor in op_info.input_tensors:
+            # 跳过权重（常数）
+            if self._is_weight(tensor.name):
+                continue
+
+            shape = tensor.shape
+            # 检查形状是否有效
+            if not shape or len(shape) <= axis:
+                continue
+
+            dim_size = shape[axis]
+
+            # 动态维度（dim_value <= 0 或特殊值0）假设可以分割
+            if dim_size <= 0:
+                continue
+
+            # 检查是否可以均匀分割
+            if dim_size < parts or dim_size % parts != 0:
+                return False
+
+        return True
+
+    def _is_weight(self, tensor_name: str) -> bool:
+        """检查张量是否是权重（常数）
+
+        Args:
+            tensor_name: 张量名称
+
+        Returns:
+            True如果是权重，False否则
+        """
+        # 检查是否在initializer中
+        if any(init.name == tensor_name for init in self.analyzer.model.graph.initializer):
+            return True
+
+        # 检查是否由Constant节点产生
+        for node in self.analyzer.model.graph.node:
+            if node.op_type == "Constant" and tensor_name in node.output:
+                return True
+
+        return False
 
     def _get_operator_config(self, op_name: str) -> tuple[int, Optional[int]]:
         """获取算子的切分配置

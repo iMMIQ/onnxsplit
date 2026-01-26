@@ -24,7 +24,7 @@ def test_analyzer_get_input_info():
     inputs = analyzer.get_inputs()
     assert len(inputs) == 1
     assert inputs[0].name == "input"
-    assert inputs[0].shape == (1, 3, 8, 8)
+    assert inputs[0].shape == (4, 3, 8, 8)  # batch_size=4 for split testing
 
 
 def test_analyzer_get_output_info():
@@ -152,15 +152,15 @@ def test_analyzer_get_operator_cached():
     analyzer = ModelAnalyzer.from_path(model_path)
 
     # 多次查询应该返回相同结果
-    op1 = analyzer.get_operator("Conv_conv1_out")
-    op2 = analyzer.get_operator("Conv_conv1_out")
-    op3 = analyzer.get_operator("Conv_conv2_out")
+    op1 = analyzer.get_operator("conv_0")
+    op2 = analyzer.get_operator("conv_0")
+    op3 = analyzer.get_operator("conv_1")
 
     assert op1 is op2  # 同一个对象引用（缓存）
     assert op1 is not None
     assert op3 is not None
-    assert op1.name == "Conv_conv1_out"
-    assert op3.name == "Conv_conv2_out"
+    assert op1.name == "conv_0"
+    assert op3.name == "conv_1"
 
 
 def test_analyzer_get_operator_nonexistent_returns_none():

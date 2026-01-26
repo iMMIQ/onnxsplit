@@ -5,9 +5,12 @@ from onnx import TensorProto, helper
 
 
 def create_simple_conv_model() -> onnx.ModelProto:
-    """创建一个简单的卷积模型用于测试"""
-    # 输入
-    input_tensor = helper.make_tensor_value_info("input", TensorProto.FLOAT, [1, 3, 8, 8])
+    """创建一个简单的卷积模型用于测试
+
+    使用batch_size=4以确保可以被2整除，用于测试split功能。
+    """
+    # 输入 - 使用batch_size=4以便可以被2整除
+    input_tensor = helper.make_tensor_value_info("input", TensorProto.FLOAT, [4, 3, 8, 8])
 
     # 权重
     weight_const = helper.make_tensor("weight", TensorProto.FLOAT, [2, 3, 3, 3], [0.1] * 54)
@@ -32,7 +35,7 @@ def create_simple_conv_model() -> onnx.ModelProto:
     )
 
     # 输出
-    output_tensor = helper.make_tensor_value_info("relu_output", TensorProto.FLOAT, [1, 2, 8, 8])
+    output_tensor = helper.make_tensor_value_info("relu_output", TensorProto.FLOAT, [4, 2, 8, 8])
 
     # 图
     graph = helper.make_graph(
@@ -65,8 +68,11 @@ def create_matmul_model() -> onnx.ModelProto:
 
 
 def create_model_with_branches() -> onnx.ModelProto:
-    """创建有分支的模型"""
-    input_tensor = helper.make_tensor_value_info("input", TensorProto.FLOAT, [1, 3, 8, 8])
+    """创建有分支的模型
+
+    使用batch_size=4以确保可以被2整除，用于测试split功能。
+    """
+    input_tensor = helper.make_tensor_value_info("input", TensorProto.FLOAT, [4, 3, 8, 8])
 
     # 分支1
     conv1 = helper.make_node(
@@ -75,6 +81,7 @@ def create_model_with_branches() -> onnx.ModelProto:
         outputs=["conv1_out"],
         kernel_shape=[3, 3],
         pads=[1, 1, 1, 1],
+        name="conv_0",
     )
 
     # 分支2
@@ -84,10 +91,11 @@ def create_model_with_branches() -> onnx.ModelProto:
         outputs=["conv2_out"],
         kernel_shape=[3, 3],
         pads=[1, 1, 1, 1],
+        name="conv_1",
     )
 
     # 合并
-    add = helper.make_node("Add", inputs=["conv1_out", "conv2_out"], outputs=["output"])
+    add = helper.make_node("Add", inputs=["conv1_out", "conv2_out"], outputs=["output"], name="add_0")
 
     w1 = helper.make_tensor("w1", TensorProto.FLOAT, [2, 3, 3, 3], [0.1] * 54)
     w2 = helper.make_tensor("w2", TensorProto.FLOAT, [2, 3, 3, 3], [0.2] * 54)
@@ -99,7 +107,7 @@ def create_model_with_branches() -> onnx.ModelProto:
     conv1.input[1] = "w1_value"
     conv2.input[1] = "w2_value"
 
-    output_tensor = helper.make_tensor_value_info("output", TensorProto.FLOAT, [1, 2, 8, 8])
+    output_tensor = helper.make_tensor_value_info("output", TensorProto.FLOAT, [4, 2, 8, 8])
 
     graph = helper.make_graph(
         [const1, const2, conv1, conv2, add],
