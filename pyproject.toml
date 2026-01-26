@@ -41,3 +41,8 @@ ignore = ["E501"]
 testpaths = ["tests"]
 pythonpath = ["src"]
 python_functions = "test_* benchmark_*"
+
+[dependency-groups]
+dev = [
+    "pytest-xdist>=3.8.0",
+]
