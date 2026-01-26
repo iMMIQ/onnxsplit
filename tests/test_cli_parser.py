@@ -62,7 +62,7 @@ def test_split_command_basic():
         model_path = Path("model.onnx")
         _create_minimal_onnx_model(model_path)
 
-        result = runner.invoke(app, ["split", "model.onnx"])
+        result = runner.invoke(app, ["split", "model.onnx", "--no-simplify"])
         assert result.exit_code == 0
         # Should create output directory
         assert Path("output").exists()
@@ -83,6 +83,7 @@ def test_split_command_with_options():
                 "custom_output",
                 "--parts",
                 "4",
+                "--no-simplify",
             ],
         )
         assert result.exit_code == 0
@@ -206,6 +207,7 @@ def test_split_command_help_shows_verify():
     result = runner.invoke(app, ["split", "--help"])
     assert result.exit_code == 0
     assert "verify" in result.stdout.lower()
+    assert "no-simplify" in result.stdout.lower() or "simplify" in result.stdout.lower()
 
 
 def test_split_command_with_verify_option():
@@ -214,7 +216,7 @@ def test_split_command_with_verify_option():
         model_path = Path("model.onnx")
         _create_minimal_onnx_model(model_path)
 
-        result = runner.invoke(app, ["split", "model.onnx", "--verify"])
+        result = runner.invoke(app, ["split", "model.onnx", "--verify", "--no-simplify"])
         # Command should succeed even if onnxruntime is not available
         assert result.exit_code == 0
         assert Path("output").exists()

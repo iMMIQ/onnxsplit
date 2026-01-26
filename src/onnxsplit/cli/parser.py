@@ -79,6 +79,11 @@ def split(
         "--verify",
         help="Verify split model produces same outputs as original using onnxruntime.",
     ),
+    no_simplify: bool = typer.Option(
+        False,
+        "--no-simplify",
+        help="Skip model simplification with onnxsim after splitting.",
+    ),
 ) -> None:
     """Split an ONNX model into smaller components.
 
@@ -99,6 +104,7 @@ def split(
         verbose=options.verbose,
         quiet=options.quiet,
         verify=verify,
+        simplify=not no_simplify,
     )
 
     result = run_split(run_ctx)

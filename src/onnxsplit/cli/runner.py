@@ -36,6 +36,7 @@ class RunContext:
         verbose: Enable verbose output
         quiet: Suppress non-error output
         verify: Verify split model equivalence using onnxruntime
+        simplify: Simplify model with onnxsim after splitting
     """
 
     model_path: str
@@ -46,6 +47,7 @@ class RunContext:
     verbose: bool = False
     quiet: bool = False
     verify: bool = False
+    simplify: bool = True
 
 
 @dataclass
@@ -307,6 +309,42 @@ def run_split(ctx: RunContext) -> RunResult:
             typer.echo(f"Saving model to: {output_path}")
 
         onnx.save(transformed_model, str(output_path))
+
+        # Simplify model with onnxsim if enabled
+        if ctx.simplify:
+            if ctx.verbose:
+                typer.echo("Simplifying model with onnxsim...")
+
+            try:
+                import onnxsim
+
+                simplified_model, check_ok = onnxsim.simplify(
+                    transformed_model,
+                    perform_optimization=True,
+                    check_n=False,
+                )
+
+                if not check_ok:
+                    raise ValueError("onnxsim validation failed: model has correctness issues")
+
+                # Save simplified model
+                onnx.save(simplified_model, str(output_path))
+
+                if ctx.verbose:
+                    typer.echo("Model simplified successfully")
+
+            except ImportError:
+                typer.echo(
+                    typer.style(
+                        "  ⚠ onnxsim not available, skipping simplification",
+                        fg=typer.colors.YELLOW,
+                    ),
+                    err=True,
+                )
+            except Exception as e:
+                error_msg = f"Model simplification failed: {e}"
+                typer.echo(error_msg, err=True)
+                return RunResult.fail(error_msg)
 
         # Generate and save report
         if ctx.verbose:

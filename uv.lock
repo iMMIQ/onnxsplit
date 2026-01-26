@@ -259,11 +259,23 @@ wheels = [
 ]
 
 [[package]]
+name = "onnxsim"
+version = "0.4.36"
+source = { registry = "https://mirrors.ustc.edu.cn/pypi/simple" }
+dependencies = [
+    { name = "onnx" },
+    { name = "rich" },
+]
+sdist = { url = "https://mirrors.ustc.edu.cn/pypi/packages/ce/9e/f34238413ebeda9a3a8802feeaa5013934455466b9ab390b48ad9c7e184f/onnxsim-0.4.36.tar.gz", hash = "sha256:6e0ee9d6d4a83042bdef7319fbe58352d9fda5f253386be2b267c7c27f0638ee", size = 20993703, upload-time = "2024-03-04T08:25:00.086Z" }
+
+[[package]]
 name = "onnxsplit"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "onnx" },
+    { name = "onnxsim" },
+    { name = "pyyaml" },
     { name = "typer" },
 ]
 
@@ -284,8 +296,10 @@ requires-dist = [
     { name = "numpy", marker = "extra == 'dev'", specifier = ">=2.0.0" },
     { name = "onnx", specifier = ">=1.20.1" },
     { name = "onnxruntime", marker = "extra == 'dev'", specifier = ">=1.20.0" },
+    { name = "onnxsim", specifier = ">=0.4.34" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0.0" },
     { name = "pytest-benchmark", marker = "extra == 'dev'", specifier = ">=4.0.0" },
+    { name = "pyyaml", specifier = ">=6.0.3" },
     { name = "pyyaml", marker = "extra == 'dev'", specifier = ">=6.0.0" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.1.0" },
     { name = "typer", specifier = ">=0.21.1" },
