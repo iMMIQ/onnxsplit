@@ -19,18 +19,50 @@ except ImportError:
 class RuntimeChecker:
     """Checker for onnxruntime availability and inference execution."""
 
+    # EP priority order (fastest first)
+    EP_PRIORITY = [
+        "CUDAExecutionProvider",
+        "TensorrtExecutionProvider",
+        "ROCmExecutionProvider",
+        "OpenVINOExecutionProvider",
+        "DnnlExecutionProvider",
+        "CoreMLExecutionProvider",
+        "XnnpackExecutionProvider",
+        "CPUExecutionProvider",
+    ]
+
+    @staticmethod
+    def get_available_providers() -> list[str]:
+        """Get available execution providers in priority order.
+
+        Returns:
+            List of available provider names sorted by performance priority.
+        """
+        if not ONNXRUNTIME_AVAILABLE:
+            return []
+
+        available = ort.get_available_providers()
+        # Return providers in priority order, but only those that are available
+        return [p for p in RuntimeChecker.EP_PRIORITY if p in available]
+
     @staticmethod
     def is_available() -> bool:
         """Check if onnxruntime is available."""
         return ONNXRUNTIME_AVAILABLE
 
     @staticmethod
-    def run_inference(model: ModelProto, inputs: dict[str, np.ndarray]) -> dict[str, np.ndarray]:
+    def run_inference(
+        model: ModelProto,
+        inputs: dict[str, np.ndarray],
+        providers: list[str] | None = None,
+    ) -> dict[str, np.ndarray]:
         """Run inference using onnxruntime.
 
         Args:
             model: ONNX model to run inference on
             inputs: Dictionary mapping input names to numpy arrays
+            providers: Optional list of execution providers. If None, uses
+                       available providers in priority order (fastest first).
 
         Returns:
             Dictionary mapping output names to numpy arrays
@@ -45,14 +77,18 @@ class RuntimeChecker:
         import tempfile
         import os
 
+        # Use optimal providers if not specified
+        if providers is None:
+            providers = RuntimeChecker.get_available_providers()
+
         # Create temporary file for the model
         with tempfile.NamedTemporaryFile(suffix=".onnx", delete=False) as f:
             temp_path = f.name
             onnx.save(model, temp_path)
 
         try:
-            # Create inference session
-            sess = ort.InferenceSession(temp_path, providers=["CPUExecutionProvider"])
+            # Create inference session with optimal providers
+            sess = ort.InferenceSession(temp_path, providers=providers)
 
             # Prepare input dict matching session's expected inputs
             input_dict = {}

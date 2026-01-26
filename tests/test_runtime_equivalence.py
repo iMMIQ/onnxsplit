@@ -103,8 +103,20 @@ def run_inference(model: onnx.ModelProto, inputs: dict[str, np.ndarray]) -> dict
         onnx.save(model, temp_path)
 
     try:
-        # 创建推理session
-        sess = ort.InferenceSession(temp_path)
+        # 创建推理session，使用最优的可用EP
+        # 按性能优先级: CUDA > TensorRT > ROCm > OpenVINO > DNNL > CoreML > XNNPACK > CPU
+        available_providers = ort.get_available_providers()
+        providers = [p for p in [
+            "CUDAExecutionProvider",
+            "TensorrtExecutionProvider",
+            "ROCmExecutionProvider",
+            "OpenVINOExecutionProvider",
+            "DnnlExecutionProvider",
+            "CoreMLExecutionProvider",
+            "XnnpackExecutionProvider",
+            "CPUExecutionProvider",
+        ] if p in available_providers]
+        sess = ort.InferenceSession(temp_path, providers=providers)
 
         # 准备输入
         input_dict = {}
