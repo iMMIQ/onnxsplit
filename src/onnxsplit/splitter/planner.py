@@ -182,6 +182,75 @@ class SplitPlanner:
 
         return True
 
+    def _find_suitable_parts(
+        self,
+        op_info: OperatorInfo,
+        axis: int,
+        initial_parts: int,
+    ) -> tuple[bool, int | None, str | None]:
+        """查找适合的切分数
+
+        当初始 parts 不能整除维度时，向上查找能整除的值。
+        搜索上限：min(维度大小, initial_parts * 4, 256)
+
+        Args:
+            op_info: 算子信息
+            axis: 切分轴
+            initial_parts: 初始切分数
+
+        Returns:
+            (found, parts, warning_message)
+            - found: 是否找到合适的切分数
+            - parts: 找到的切分数（仅在 found=True 时有效）
+            - warning_message: 警告信息（仅在 found=False 时有效）
+        """
+        # 收集所有需要检查的维度大小
+        dim_sizes = []
+        for tensor in op_info.input_tensors:
+            if self._is_weight(tensor.name):
+                continue
+
+            shape = tensor.shape
+            if not shape or len(shape) <= axis:
+                continue
+
+            dim_size = shape[axis]
+            if dim_size <= 0:
+                # 动态维度，无法确定
+                continue
+
+            dim_sizes.append(dim_size)
+
+        if not dim_sizes:
+            # 没有有效维度，使用初始值
+            return (True, initial_parts, None)
+
+        # 检查初始 parts 是否适用于所有维度
+        initial_valid = all(
+            dim >= initial_parts and dim % initial_parts == 0
+            for dim in dim_sizes
+        )
+
+        if initial_valid:
+            return (True, initial_parts, None)
+
+        # 计算搜索上限
+        max_dim = max(dim_sizes)
+        search_limit = min(max_dim, initial_parts * 4, 256)
+
+        # 从 initial_parts + 1 开始向上查找
+        for parts in range(initial_parts + 1, search_limit + 1):
+            if all(dim >= parts and dim % parts == 0 for dim in dim_sizes):
+                return (True, parts, None)
+
+        # 未找到合适的 parts
+        dim_info = ", ".join(str(d) for d in dim_sizes)
+        warning = (
+            f"{op_info.name}: skipped split - dimension(s) [{dim_info}] on axis {axis} "
+            f"cannot be evenly split by {initial_parts} (tried up to {search_limit})"
+        )
+        return (False, None, warning)
+
     def _is_weight(self, tensor_name: str) -> bool:
         """检查张量是否是权重（常数）
 
