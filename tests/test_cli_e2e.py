@@ -326,6 +326,41 @@ class TestCLIOutputContent:
             assert "operators" in report
             assert len(report["operators"]) > 0
 
+    def test_split_actually_splits(self, resnet18_model_path: Path) -> None:
+        """测试split实际发生了（不再是0 operators split）
+
+        由于形状推断和多轴尝试功能，现在batch_size=1的ResNet18
+        也能在channel维度上被切分。
+        """
+        import json
+
+        with runner.isolated_filesystem():
+            model_path = Path("resnet18.onnx")
+            model_path.write_bytes(resnet18_model_path.read_bytes())
+
+            # 使用parts=2，应该自动调整到可用的维度
+            result = runner.invoke(
+                app,
+                ["split", str(model_path), "--parts", "2", "--no-simplify", "--output", "output"]
+            )
+
+            assert result.exit_code == 0
+
+            # 检查报告
+            report_path = Path("output") / "split_report.json"
+            report = json.loads(report_path.read_text())
+
+            # 现在应该有实际的split发生
+            # 由于batch_size=1无法切分，算法会尝试其他维度
+            # Element-wise算子（Relu, Add）可以在channel维度切分
+            assert report["split_operators"] > 0, "Expected at least some operators to be split"
+            assert report["total_parts"] > 0
+            assert len(report["plans"]) > 0
+
+            # 验证至少有一些算子是在非batch维度上切分的
+            non_batch_splits = [p for p in report["plans"] if p["axis"] != 0]
+            assert len(non_batch_splits) > 0, "Expected some splits on non-batch axes"
+
 
 @pytest.mark.skipif(not ONNXRUNTIME_AVAILABLE, reason="onnxruntime not available")
 class TestCLIWithRuntime:
