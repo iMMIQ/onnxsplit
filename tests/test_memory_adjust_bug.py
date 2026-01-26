@@ -121,6 +121,58 @@ def test_valid_parts_for_batch_18():
     print(f"Invalid parts examples: {[p for p in range(1, 37) if batch_dim % p != 0][:10]}")
 
 
+def test_planner_with_parts_1_creates_plans_for_adjuster():
+    """Bug 3: planner 在 default_parts=1 时不创建 plans，导致 adjuster 无法工作"""
+    model = create_large_memory_model_batch_18()
+    analyzer = ModelAnalyzer.from_model_proto(model)
+
+    # 使用 default_parts=1 的配置（模拟 -p=1）
+    from onnxsplit.config import GlobalConfig, SplitConfig
+    from onnxsplit.splitter.planner import SplitPlanner
+    from onnxsplit.memory.auto_adjust import AutoSplitAdjuster
+    from onnxsplit.memory.estimator import MemoryEstimator
+
+    config = SplitConfig(global_config=GlobalConfig(default_parts=1))
+    planner = SplitPlanner(analyzer, config)
+    report = planner.generate()
+
+    print(f"\nPlanner with default_parts=1:")
+    print(f"  Number of plans: {len(report.plans)}")
+    print(f"  split_operators: {report.split_operators}")
+
+    # BUG FIXED: 现在 plans 应该包含可切分的算子（is_split=False）
+    if len(report.plans) == 0:
+        print("❌ BUG 3 CONFIRMED: planner created no plans when default_parts=1")
+        print("   Adjuster cannot work with empty plans list!")
+        return
+
+    print("✓ Bug 3 fixed: planner created plans even with default_parts=1")
+
+    # 验证所有计划都是 parts=1, is_split=False
+    for plan in report.plans:
+        assert plan.parts == 1, f"Expected parts=1, got {plan.parts}"
+        assert not plan.is_split, f"Expected is_split=False, got {plan.is_split}"
+
+    # 测试 adjuster 是否能正常工作
+    estimator = MemoryEstimator(analyzer)
+    adjuster = AutoSplitAdjuster(estimator, max_parts=256)
+
+    max_memory_mb = 1.0  # 1MB
+    min_parts = 1
+    adjusted_plans = adjuster.adjust_report(report.plans, max_memory_mb, min_parts)
+
+    print(f"\nAfter adjust (max_memory={max_memory_mb}MB, min_parts={min_parts}):")
+    for plan in adjusted_plans:
+        print(f"  {plan.operator_name}: parts={plan.parts}, is_split={plan.is_split}")
+
+    # 验证调整后的 parts > 1（因为内存超限）
+    add_plan = next(p for p in adjusted_plans if p.operator_name == "add_0")
+    if add_plan.parts > 1 and add_plan.is_split:
+        print(f"✓ Adjuster correctly adjusted parts from 1 to {add_plan.parts} for memory limit")
+    else:
+        print(f"❌ Adjuster failed: parts={add_plan.parts}, is_split={add_plan.is_split}")
+
+
 if __name__ == "__main__":
     print("=" * 60)
     print("Bug 1: Adjuster skips parts=1")
@@ -131,6 +183,11 @@ if __name__ == "__main__":
     print("Bug 2: Adjuster doesn't validate divisibility")
     print("=" * 60)
     test_bug2_adjuster_does_not_validate_divisibility()
+
+    print("\n" + "=" * 60)
+    print("Bug 3: Planner with default_parts=1 creates no plans")
+    print("=" * 60)
+    test_planner_with_parts_1_creates_plans_for_adjuster()
 
     print("\n" + "=" * 60)
     print("Valid parts for batch=18")

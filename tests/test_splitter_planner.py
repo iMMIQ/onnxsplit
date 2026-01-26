@@ -18,9 +18,14 @@ def test_planner_with_no_config():
     planner = SplitPlanner(analyzer, config)
     report = planner.generate()
 
-    # 默认不切分
-    assert len(report.plans) == 0
+    # 默认不切分，但plans包含可切分算子（is_split=False）
+    # 这样adjuster可以根据内存限制进行调整
+    assert len(report.plans) > 0
     assert report.split_operators == 0
+    # 所有计划的parts都应该是1，is_split=False
+    for plan in report.plans:
+        assert plan.parts == 1
+        assert not plan.is_split
 
 
 def test_planner_with_global_default_parts():

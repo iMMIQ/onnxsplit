@@ -60,15 +60,17 @@ class SplitPlanner:
         self._analyze_splitability()
 
         # 生成切分方案
+        # 注意：即使 parts=1 (is_split=False)，也保留在 plans 中
+        # 这样 AutoSplitAdjuster 可以根据内存限制进行调整
         plans = []
         for op_name, (op_info, splitable_axes) in self._splitable_ops.items():
             plan = self._create_plan_for_operator(op_info, splitable_axes)
-            if plan and plan.is_split:
+            if plan:
                 plans.append(plan)
 
-        # 统计
+        # 统计（只统计 is_split=True 的方案）
         total_ops = len(self._splitable_ops)
-        split_ops = len(plans)
+        split_ops = sum(1 for p in plans if p.is_split)
         unsplit_ops = total_ops - split_ops
 
         return SplitReport(
@@ -103,9 +105,20 @@ class SplitPlanner:
         # 获取该算子的配置
         parts, axis = self._get_operator_config(op_info.name)
 
-        # parts=1表示不切分
+        # parts=1表示不切分，但仍创建方案以便 adjuster 根据内存限制调整
         if parts <= 1:
-            return None
+            # 创建 parts=1 的占位方案，标记为 is_split=False
+            # 如果没有可切分轴，返回 None（无法调整）
+            if not splitable_axes.axes:
+                return None
+            # 选择优先级最高的轴（axis=0 或最小轴）
+            candidate_axes = sorted(splitable_axes.axes, key=lambda a: (a != 0, a))
+            return SplitPlan(
+                operator_name=op_info.name,
+                parts=1,
+                axis=candidate_axes[0] if candidate_axes else 0,
+                reason="No split requested (parts=1), but adjustable for memory limit",
+            )
 
         # 检查可切分性
         if not splitable_axes.axes:
