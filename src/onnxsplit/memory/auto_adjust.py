@@ -33,19 +33,21 @@ class AutoSplitAdjuster:
         self,
         plan: SplitPlan,
         max_memory_mb: float | None,
+        min_parts: int = 1,
     ) -> SplitPlan:
         """调整切分方案
 
         Args:
             plan: 原始切分方案
             max_memory_mb: 内存限制（MB），None表示不限制
+            min_parts: 最小切分数限制（来自 CLI -p 参数）
 
         Returns:
             调整后的切分方案
         """
         # 修复Bug 1: 移除 `not plan.is_split` 检查
         # 当 parts=1 时，is_split=False，但仍需要根据内存限制进行调整
-        if max_memory_mb is None:
+        if max_memory_mb is None and min_parts <= 1:
             return plan
 
         # 如果 axis 为 None，无法切分
@@ -62,11 +64,26 @@ class AutoSplitAdjuster:
         if op_mem is None or op_mem.total_memory_mb == 0:
             return plan
 
+        # 应用最小切分数限制
+        base_parts = max(plan.parts, min_parts)
+
         # 修复Bug 2: 首先验证当前 parts 是否有效（能整除维度）
         # 即使不需要内存调整，无效的 parts 也应该被修正
         validated_parts = self._validate_and_adjust_parts(
-            op_info, plan.axis, plan.parts
+            op_info, plan.axis, base_parts
         )
+
+        # 如果没有内存限制，只返回验证后的 parts
+        if max_memory_mb is None:
+            if validated_parts != plan.parts:
+                return SplitPlan(
+                    operator_name=plan.operator_name,
+                    parts=validated_parts,
+                    axis=plan.axis,
+                    slice_ranges=plan.slice_ranges,
+                    reason=f"Adjusted from {plan.parts} to {validated_parts} for min_parts constraint",
+                )
+            return plan
 
         # 检查是否需要内存调整
         per_part_memory = op_mem.total_memory_mb / validated_parts
@@ -232,17 +249,19 @@ class AutoSplitAdjuster:
         self,
         plans: list[SplitPlan],
         max_memory_mb: float | None,
+        min_parts: int = 1,
     ) -> list[SplitPlan]:
         """批量调整切分方案
 
         Args:
             plans: 切分方案列表
             max_memory_mb: 内存限制
+            min_parts: 最小切分数限制（来自 CLI -p 参数）
 
         Returns:
             调整后的方案列表
         """
-        if max_memory_mb is None:
+        if max_memory_mb is None and min_parts <= 1:
             return plans
 
-        return [self.adjust_plan(plan, max_memory_mb) for plan in plans]
+        return [self.adjust_plan(plan, max_memory_mb, min_parts) for plan in plans]

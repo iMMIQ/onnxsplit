@@ -286,7 +286,8 @@ def run_split(ctx: RunContext) -> RunResult:
             )
 
             max_memory = config.global_config.max_memory_mb
-            adjusted_plans = adjuster.adjust_report(report.plans, max_memory)
+            min_parts = config.global_config.default_parts
+            adjusted_plans = adjuster.adjust_report(report.plans, max_memory, min_parts)
 
             # Update report with adjusted plans
             report = SplitReport(
