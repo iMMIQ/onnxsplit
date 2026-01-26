@@ -290,10 +290,11 @@ def run_split(ctx: RunContext) -> RunResult:
             adjusted_plans = adjuster.adjust_report(report.plans, max_memory, min_parts)
 
             # Update report with adjusted plans
+            # Recalculate split/unsplit counts based on adjusted plans
             report = SplitReport(
                 original_operators=report.original_operators,
-                split_operators=report.split_operators,
-                unsplit_operators=report.unsplit_operators,
+                split_operators=sum(1 for p in adjusted_plans if p.is_split),
+                unsplit_operators=sum(1 for p in adjusted_plans if not p.is_split),
                 plans=adjusted_plans,
             )
 
