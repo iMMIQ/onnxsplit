@@ -252,6 +252,15 @@ def run_split(ctx: RunContext) -> RunResult:
         planner = SplitPlanner(analyzer, config)
         report = planner.generate()
 
+        # 输出规划器收集的警告
+        planner_warnings = planner.get_warnings()
+        if planner_warnings and not ctx.quiet:
+            for warning in planner_warnings:
+                typer.echo(
+                    typer.style(f"  ⚠ {warning}", fg=typer.colors.YELLOW),
+                    err=True,
+                )
+
         if ctx.verbose:
             typer.echo(f"Analysis complete: {report.summary()}")
 
