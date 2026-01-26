@@ -71,17 +71,13 @@ class GraphTransformer:
         nodes_to_add = []
 
         # 插入输入切分（如果需要），并建立输入到split输出的映射
+        # 检查图中是否已存在对同一输入的Split节点，避免重复创建
         input_split_map = {}  # 原始输入名 -> 切分后的输出名列表
         if self._needs_input_split(target_node):
-            split_nodes = self._create_input_splits(target_node, plan)
+            split_nodes, input_split_map = self._create_input_splits(
+                new_graph, target_node, plan
+            )
             nodes_to_add.extend(split_nodes)
-
-            # 建立输入映射: 原始输入名 -> [split_0, split_1, ...]
-            for input_name in target_node.input:
-                if not input_name or self._is_weight(input_name):
-                    continue
-                split_outputs = [f"{input_name}_split_{i}" for i in range(plan.parts)]
-                input_split_map[input_name] = split_outputs
 
         # 克隆节点，使用切分后的输入
         cloned_nodes = []
@@ -134,6 +130,56 @@ class GraphTransformer:
                 return True
         return False
 
+    def _find_existing_split(
+        self,
+        graph: onnx.GraphProto,
+        input_name: str,
+        axis: int,
+        parts: int,
+    ) -> list[str] | None:
+        """查找图中是否已存在对指定输入的Split节点
+
+        如果存在一个Split节点，它满足：
+        1. 输入是input_name
+        2. axis属性匹配
+        3. 输出数量等于parts
+
+        则返回该Split节点的输出列表，否则返回None。
+
+        Args:
+            graph: ONNX图
+            input_name: 要查找的输入张量名称
+            axis: 切分轴
+            parts: 切分份数
+
+        Returns:
+            已存在的Split节点的输出列表，如果不存在则返回None
+        """
+        for node in graph.node:
+            if node.op_type != "Split":
+                continue
+
+            # 检查输入是否匹配
+            if not node.input or node.input[0] != input_name:
+                continue
+
+            # 检查输出数量是否匹配
+            if len(node.output) != parts:
+                continue
+
+            # 检查axis属性是否匹配
+            node_axis = None
+            for attr in node.attribute:
+                if attr.name == "axis":
+                    node_axis = attr.i
+                    break
+
+            if node_axis == axis:
+                # 找到匹配的Split节点，返回其输出
+                return list(node.output)
+
+        return None
+
     def _needs_output_merge(self, node: onnx.NodeProto) -> bool:
         """检查是否需要在输出端插入Concat"""
         for output_name in node.output:
@@ -146,9 +192,27 @@ class GraphTransformer:
         """检查张量是否是模型输出"""
         return any(output.name == tensor_name for output in self.analyzer.model.graph.output)
 
-    def _create_input_splits(self, node: onnx.NodeProto, plan: SplitPlan) -> list[onnx.NodeProto]:
-        """创建输入切分节点"""
+    def _create_input_splits(
+        self,
+        graph: onnx.GraphProto,
+        node: onnx.NodeProto,
+        plan: SplitPlan,
+    ) -> tuple[list[onnx.NodeProto], dict[str, list[str]]]:
+        """创建输入切分节点
+
+        检查图中是否已存在对指定输入的Split节点，如果存在则复用，
+        避免创建重复的Split节点导致SSA违规。
+
+        Args:
+            graph: ONNX图
+            node: 要切分的节点
+            plan: 切分方案
+
+        Returns:
+            (要添加的Split节点列表, 输入名->切分输出名的映射字典)
+        """
         split_nodes = []
+        input_split_map = {}
 
         for input_name in node.input:
             if not input_name:
@@ -157,16 +221,27 @@ class GraphTransformer:
             if self._is_weight(input_name):
                 continue
 
-            # 不传递node_name，让create_split_node自动生成并清理名称
-            split_node = create_split_node(
-                input_name=input_name,
-                axis=plan.axis,
-                parts=plan.parts,
-                output_prefix=f"{input_name}_split",
+            # 检查是否已存在匹配的Split节点
+            existing_outputs = self._find_existing_split(
+                graph, input_name, plan.axis, plan.parts
             )
-            split_nodes.append(split_node)
 
-        return split_nodes
+            if existing_outputs is not None:
+                # 复用已存在的Split节点的输出
+                input_split_map[input_name] = existing_outputs
+            else:
+                # 创建新的Split节点
+                split_node = create_split_node(
+                    input_name=input_name,
+                    axis=plan.axis,
+                    parts=plan.parts,
+                    output_prefix=f"{input_name}_split",
+                )
+                split_nodes.append(split_node)
+                # 使用新创建的Split节点的实际输出
+                input_split_map[input_name] = list(split_node.output)
+
+        return split_nodes, input_split_map
 
     def _create_output_merges(self, node: onnx.NodeProto, plan: SplitPlan) -> list[onnx.NodeProto]:
         """创建输出合并节点"""

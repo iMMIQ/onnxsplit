@@ -130,12 +130,16 @@ class TestInputSplit:
         # 找到conv_0节点
         for node in simple_conv_model.graph.node:
             if node.name == "conv_0":
-                split_nodes = transformer._create_input_splits(node, plan)
+                split_nodes, input_split_map = transformer._create_input_splits(
+                    simple_conv_model.graph, node, plan
+                )
 
                 # conv_0有两个输入：input和weight_value，都不是initializer
                 # 应该为两个输入都创建split节点
                 assert len(split_nodes) == 2
                 assert all(n.op_type == "Split" for n in split_nodes)
+                # 检查返回的映射
+                assert len(input_split_map) == 2
                 break
 
 
