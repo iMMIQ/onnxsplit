@@ -79,6 +79,16 @@ def split(
         "--verify",
         help="Verify split model produces same outputs as original using onnxruntime.",
     ),
+    verify_rtol: float = typer.Option(
+        1e-4,
+        "--verify-rtol",
+        help="Relative tolerance for verification (default: 1e-4).",
+    ),
+    verify_atol: float = typer.Option(
+        1e-5,
+        "--verify-atol",
+        help="Absolute tolerance for verification (default: 1e-5).",
+    ),
     no_simplify: bool = typer.Option(
         False,
         "--no-simplify",
@@ -105,6 +115,8 @@ def split(
         quiet=options.quiet,
         verify=verify,
         simplify=not no_simplify,
+        verify_rtol=verify_rtol,
+        verify_atol=verify_atol,
     )
 
     result = run_split(run_ctx)

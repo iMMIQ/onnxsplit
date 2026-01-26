@@ -37,6 +37,8 @@ class RunContext:
         quiet: Suppress non-error output
         verify: Verify split model equivalence using onnxruntime
         simplify: Simplify model with onnxsim after splitting
+        verify_rtol: Relative tolerance for verification
+        verify_atol: Absolute tolerance for verification
     """
 
     model_path: str
@@ -48,6 +50,8 @@ class RunContext:
     quiet: bool = False
     verify: bool = False
     simplify: bool = True
+    verify_rtol: float = 1e-4
+    verify_atol: float = 1e-5
 
 
 @dataclass
@@ -381,8 +385,8 @@ def run_split(ctx: RunContext) -> RunResult:
             verify_result = verify_equivalence(
                 original_model=model,
                 split_model=model_to_verify,
-                rtol=1e-4,
-                atol=1e-5,
+                rtol=ctx.verify_rtol,
+                atol=ctx.verify_atol,
                 verbose=ctx.verbose,
             )
 
