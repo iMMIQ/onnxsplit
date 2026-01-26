@@ -44,6 +44,7 @@ class SplitPlanner:
         self.analyzer = analyzer
         self.config = config if config is not None else SplitConfig()
         self.axis_analyzer = AxisAnalyzer()
+        self._warnings: list[str] = []
         self._splitable_ops: dict[str, tuple[OperatorInfo, SplitableAxes]] = {}
         self._compiled_patterns: list[CompiledPattern] = []
         self._exact_match_patterns: dict[str, OperatorConfig] = {}
@@ -265,3 +266,19 @@ class SplitPlanner:
             self._analyze_splitability()
 
         return [op_info for op_info, splitable in self._splitable_ops.values() if splitable.axes]
+
+    def get_warnings(self) -> list[str]:
+        """获取收集的警告信息
+
+        Returns:
+            警告信息列表
+        """
+        return self._warnings.copy()
+
+    def _add_warning(self, message: str) -> None:
+        """添加警告信息
+
+        Args:
+            message: 警告内容
+        """
+        self._warnings.append(message)
