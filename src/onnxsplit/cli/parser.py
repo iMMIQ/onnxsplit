@@ -57,7 +57,7 @@ def split(
         exists=True,
     ),
     parts: int = typer.Option(
-        2,
+        1,
         "--parts",
         "-p",
         help="Number of parts to split the model into.",
