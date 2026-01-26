@@ -157,12 +157,12 @@ class GraphTransformer:
             if self._is_weight(input_name):
                 continue
 
+            # 不传递node_name，让create_split_node自动生成并清理名称
             split_node = create_split_node(
                 input_name=input_name,
                 axis=plan.axis,
                 parts=plan.parts,
                 output_prefix=f"{input_name}_split",
-                node_name=f"split_{input_name}",
             )
             split_nodes.append(split_node)
 
@@ -175,11 +175,11 @@ class GraphTransformer:
         for i, output_name in enumerate(node.output):
             split_outputs = [f"{output_name}_{j}" for j in range(plan.parts)]
 
+            # 不传递node_name，让create_concat_node自动生成并清理名称
             concat_node = create_concat_node(
                 input_names=split_outputs,
                 output_name=output_name,
                 axis=plan.axis,
-                node_name=f"concat_{output_name}",
             )
             concat_nodes.append(concat_node)
 

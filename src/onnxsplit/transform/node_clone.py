@@ -1,6 +1,30 @@
 """节点克隆功能"""
 
+import re
 from onnx import NodeProto
+
+
+def _sanitize_name_for_node(name: str) -> str:
+    """清理名称以用作节点名称
+
+    ONNX节点名称不应包含某些特殊字符（如前导斜杠、空格等）。
+    此函数将特殊字符替换为下划线。
+
+    Args:
+        name: 原始名称
+
+    Returns:
+        清理后的名称
+    """
+    # 移除前导斜杠并替换其他特殊字符
+    cleaned = name.lstrip("/")
+    # 替换其他非法字符（除字母、数字、下划线、连字符外的字符）
+    cleaned = re.sub(r"[^a-zA-Z0-9_-]", "_", cleaned)
+    # 确保不以数字或连字符开头（某些系统不允许）
+    if cleaned and cleaned[0] in "0123456789-":
+        cleaned = "n_" + cleaned
+    # 如果清理后为空，返回默认名称
+    return cleaned or "node"
 
 
 def generate_split_name(original_name: str, part_idx: int, suffix: str = "split") -> str:
@@ -14,7 +38,8 @@ def generate_split_name(original_name: str, part_idx: int, suffix: str = "split"
     Returns:
         新的节点名称
     """
-    base_name = original_name or f"node_{id(object())}"
+    sanitized_name = _sanitize_name_for_node(original_name)
+    base_name = sanitized_name if sanitized_name != "node" else f"node_{id(object())}"
     return f"{base_name}_{suffix}_{part_idx}"
 
 
@@ -43,7 +68,11 @@ def clone_node(
 
     # 生成新名称
     if new_name is None:
-        base_name = node.name if node.name else f"{node.op_type}_node"
+        # 清理原始节点名称
+        original_name = node.name if node.name else f"{node.op_type}_node"
+        sanitized_name = _sanitize_name_for_node(original_name)
+        # 如果清理后变为默认值，使用op_type作为基础名称
+        base_name = sanitized_name if sanitized_name != "node" else f"{node.op_type}_node"
         new_name = f"{base_name}{suffix}"
 
     # 使用新输入或原输入
