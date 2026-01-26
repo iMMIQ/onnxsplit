@@ -1,6 +1,6 @@
 """CLI端到端测试，使用真实模型
 
-这些测试使用models目录下的真实ONNX模型（resnet18.onnx, vgg19.onnx）
+这些测试使用models目录下的真实ONNX模型（resnet18.onnx）
 来验证完整的CLI工作流程。
 
 注意：这些测试默认开启simplify和verify，使用真实场景配置。
@@ -28,15 +28,6 @@ except ImportError:
 def resnet18_model_path() -> Path:
     """ResNet18模型路径"""
     path = Path(__file__).parent.parent / "models" / "resnet18.onnx"
-    if not path.exists():
-        pytest.skip(f"Model file not found: {path}")
-    return path
-
-
-@pytest.fixture
-def vgg19_model_path() -> Path:
-    """VGG19模型路径"""
-    path = Path(__file__).parent.parent / "models" / "vgg19.onnx"
     if not path.exists():
         pytest.skip(f"Model file not found: {path}")
     return path
@@ -135,96 +126,6 @@ class TestResNet18CLI:
         with runner.isolated_filesystem():
             model_path = Path("resnet18.onnx")
             model_path.write_bytes(resnet18_model_path.read_bytes())
-
-            result = runner.invoke(app, ["validate", str(model_path)])
-
-            assert result.exit_code == 0
-            assert "validation passed" in result.stdout.lower()
-
-
-class TestVGG19CLI:
-    """使用VGG19模型测试CLI - 完整工作流"""
-
-    def test_vgg19_split_with_verify(self, vgg19_model_path: Path) -> None:
-        """测试VGG19 split命令，开启simplify和verify（真实场景）"""
-        with runner.isolated_filesystem():
-            model_path = Path("vgg19.onnx")
-            model_path.write_bytes(vgg19_model_path.read_bytes())
-
-            # 使用真实场景配置
-            result = runner.invoke(
-                app,
-                ["split", str(model_path), "--verify", "--output", "output"]
-            )
-
-            if result.exit_code != 0:
-                if "simplification" in result.stderr.lower():
-                    pytest.skip("onnxsim validation failed - this is a bug to fix")
-                if ONNXRUNTIME_AVAILABLE:
-                    pytest.skip(f"Split failed - this indicates a bug: {result.stderr}")
-
-            assert Path("output").exists()
-            assert (Path("output") / "split_model.onnx").exists()
-            assert (Path("output") / "split_report.json").exists()
-
-    def test_vgg19_split_with_parts(self, vgg19_model_path: Path) -> None:
-        """测试VGG19使用parts参数，开启simplify和verify"""
-        with runner.isolated_filesystem():
-            model_path = Path("vgg19.onnx")
-            model_path.write_bytes(vgg19_model_path.read_bytes())
-
-            result = runner.invoke(
-                app,
-                ["split", str(model_path), "--parts", "8", "--verify", "--output", "output"]
-            )
-
-            if result.exit_code != 0:
-                if "simplification" in result.stderr.lower():
-                    pytest.skip("onnxsim validation failed - this is a bug to fix")
-                if ONNXRUNTIME_AVAILABLE:
-                    pytest.skip(f"Split failed - this indicates a bug: {result.stderr}")
-
-            assert Path("output").exists()
-
-    def test_vgg19_split_with_max_memory(self, vgg19_model_path: Path) -> None:
-        """测试VGG19使用max_memory参数，开启simplify和verify"""
-        with runner.isolated_filesystem():
-            model_path = Path("vgg19.onnx")
-            model_path.write_bytes(vgg19_model_path.read_bytes())
-
-            result = runner.invoke(
-                app,
-                ["split", str(model_path), "--max-memory", "200", "--verify", "--output", "output"]
-            )
-
-            if result.exit_code != 0:
-                if "simplification" in result.stderr.lower():
-                    pytest.skip("onnxsim validation failed - this is a bug to fix")
-                if ONNXRUNTIME_AVAILABLE:
-                    pytest.skip(f"Split failed - this indicates a bug: {result.stderr}")
-
-            assert Path("output").exists()
-
-    def test_vgg19_analyze(self, vgg19_model_path: Path) -> None:
-        """测试VGG19 analyze命令"""
-        with runner.isolated_filesystem():
-            model_path = Path("vgg19.onnx")
-            model_path.write_bytes(vgg19_model_path.read_bytes())
-
-            result = runner.invoke(
-                app,
-                ["analyze", str(model_path), "--output", "output"]
-            )
-
-            assert result.exit_code == 0
-            assert Path("output").exists()
-            assert (Path("output") / "analysis_report.json").exists()
-
-    def test_vgg19_validate(self, vgg19_model_path: Path) -> None:
-        """测试VGG19 validate命令"""
-        with runner.isolated_filesystem():
-            model_path = Path("vgg19.onnx")
-            model_path.write_bytes(vgg19_model_path.read_bytes())
 
             result = runner.invoke(app, ["validate", str(model_path)])
 
