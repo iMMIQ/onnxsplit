@@ -41,6 +41,8 @@ class ModelAnalyzer:
             ModelAnalyzer实例
         """
         model = onnx.load(str(path))
+        # 进行形状推断以获取中间张量的形状信息
+        model = onnx.shape_inference.infer_shapes(model)
         return cls(model)
 
     @classmethod
@@ -53,6 +55,8 @@ class ModelAnalyzer:
         Returns:
             ModelAnalyzer实例
         """
+        # 进行形状推断以获取中间张量的形状信息
+        model = onnx.shape_inference.infer_shapes(model)
         return cls(model)
 
     def _build_tensor_info(self) -> None:

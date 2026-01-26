@@ -112,44 +112,45 @@ class SplitPlanner:
             # 没有可切分轴
             return None
 
-        # 确定切分轴
+        # 确定候选切分轴（按优先级排序）
+        candidate_axes = []
         if axis is not None:
-            # 用户指定了轴，检查是否可切
-            if axis not in splitable_axes.axes:
-                # 指定的轴不可切，回退到默认或跳过
-                if splitable_axes.axes:
-                    axis = next(iter(splitable_axes.axes))
-                else:
-                    return None
-        else:
-            # 自动选择轴：优先选择batch(axis=0)
-            if 0 in splitable_axes.axes:
-                axis = 0
+            # 用户指定了轴
+            if axis in splitable_axes.axes:
+                candidate_axes = [axis]
             else:
-                # 选择第一个可切分轴
-                axis = min(splitable_axes.axes) if splitable_axes.axes else None
+                # 指定的轴不可切，尝试其他可切分轴
+                candidate_axes = sorted(splitable_axes.axes)
+        else:
+            # 自动选择轴：优先batch(axis=0)，然后按数字顺序
+            candidate_axes = sorted(splitable_axes.axes, key=lambda a: (a != 0, a))
 
-        if axis is None:
+        if not candidate_axes:
             return None
 
-        # 查找适合的切分数
-        found, adjusted_parts, warning = self._find_suitable_parts(op_info, axis, parts)
+        # 尝试每个候选轴，直到找到可用的
+        for try_axis in candidate_axes:
+            found, adjusted_parts, warning = self._find_suitable_parts(op_info, try_axis, parts)
 
-        if not found:
-            self._add_warning(warning)
-            return None
+            if found:
+                # 找到合适的切分方案
+                if adjusted_parts != parts:
+                    # 切分数被调整，添加信息日志（非警告）
+                    # 可选：在 verbose 模式下输出
+                    pass
+                return SplitPlan(
+                    operator_name=op_info.name,
+                    parts=adjusted_parts,
+                    axis=try_axis,
+                    reason=splitable_axes.reason,
+                )
 
-        if adjusted_parts != parts:
-            # 切分数被调整，添加信息日志（非警告）
-            # 可选：在 verbose 模式下输出
-            pass
-
-        return SplitPlan(
-            operator_name=op_info.name,
-            parts=adjusted_parts,
-            axis=axis,
-            reason=splitable_axes.reason,
+        # 所有候选轴都无法切分
+        self._add_warning(
+            f"{op_info.name}: skipped split - tried axes {candidate_axes}, "
+            f"none could be split into {parts} parts"
         )
+        return None
 
     def _is_evenly_splittable(
         self,
