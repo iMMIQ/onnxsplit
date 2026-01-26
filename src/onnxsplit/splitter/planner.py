@@ -132,13 +132,21 @@ class SplitPlanner:
         if axis is None:
             return None
 
-        # 检查输入形状是否支持均匀分割
-        if not self._is_evenly_splittable(op_info, axis, parts):
+        # 查找适合的切分数
+        found, adjusted_parts, warning = self._find_suitable_parts(op_info, axis, parts)
+
+        if not found:
+            self._add_warning(warning)
             return None
+
+        if adjusted_parts != parts:
+            # 切分数被调整，添加信息日志（非警告）
+            # 可选：在 verbose 模式下输出
+            pass
 
         return SplitPlan(
             operator_name=op_info.name,
-            parts=parts,
+            parts=adjusted_parts,
             axis=axis,
             reason=splitable_axes.reason,
         )

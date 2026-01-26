@@ -329,16 +329,17 @@ def test_planner_config_wildcard_star():
     config = SplitConfig(
         global_config=GlobalConfig(default_parts=1),
         operators={
-            "*": OperatorConfig(parts=3),  # 匹配所有
+            "*": OperatorConfig(parts=3),  # 匹配所有，但会被自动调整
         },
     )
 
     planner = SplitPlanner(analyzer, config)
     report = planner.generate()
 
-    # 可切分的算子都应该使用parts=3
+    # 由于batch_size=4，请求的parts=3不能整除4
+    # 算法会自动向上查找，找到parts=4可以整除
     for plan in report.plans:
-        assert plan.parts == 3
+        assert plan.parts == 4  # 自动调整为4
 
 
 def test_planner_config_multiple_wildcards():
