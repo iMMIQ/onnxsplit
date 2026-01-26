@@ -264,8 +264,13 @@ def run_split(ctx: RunContext) -> RunResult:
         if ctx.verbose:
             typer.echo(f"Analysis complete: {report.summary()}")
 
-        # Step 5: Apply memory adjustments if configured
-        if config.memory_rules and config.memory_rules.auto_adjust:
+        # Step 5: Apply memory adjustments if configured or if max_memory specified via CLI
+        # If max_memory_mb is set (from config or CLI), apply memory adjustment automatically
+        should_adjust = (
+            config.memory_rules and config.memory_rules.auto_adjust
+        ) or config.global_config.max_memory_mb is not None
+
+        if should_adjust:
             if ctx.verbose:
                 typer.echo("Applying memory adjustments...")
 
