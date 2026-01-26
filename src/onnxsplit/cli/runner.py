@@ -325,6 +325,7 @@ def run_split(ctx: RunContext) -> RunResult:
         onnx.save(transformed_model, str(output_path))
 
         # Simplify model with onnxsim if enabled
+        simplified_model = None  # Track if simplification succeeded
         if ctx.simplify:
             if ctx.verbose:
                 typer.echo("Simplifying model with onnxsim...")
@@ -374,9 +375,12 @@ def run_split(ctx: RunContext) -> RunResult:
 
             from onnxsplit.verify import verify_equivalence
 
+            # Use the actual output model (simplified if successful, otherwise transformed)
+            model_to_verify = simplified_model if simplified_model is not None else transformed_model
+
             verify_result = verify_equivalence(
                 original_model=model,
-                split_model=transformed_model,
+                split_model=model_to_verify,
                 rtol=1e-4,
                 atol=1e-5,
                 verbose=ctx.verbose,
