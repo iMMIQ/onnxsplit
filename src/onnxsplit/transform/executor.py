@@ -79,6 +79,11 @@ class GraphTransformer:
             )
             nodes_to_add.extend(split_nodes)
 
+        # 如果没有输入被split（由于形状不兼容等原因），返回原始模型
+        if not input_split_map and self._needs_input_split(target_node):
+            # 需要split但无法split（形状不兼容），返回原模型副本
+            return copy.deepcopy(self.analyzer.model)
+
         # 克隆节点，使用切分后的输入
         cloned_nodes = []
         for i in range(plan.parts):
@@ -192,6 +197,98 @@ class GraphTransformer:
         """检查张量是否是模型输出"""
         return any(output.name == tensor_name for output in self.analyzer.model.graph.output)
 
+    def _get_tensor_shape(self, tensor_name: str) -> tuple[int, ...]:
+        """获取张量形状（包括权重）
+
+        Args:
+            tensor_name: 张量名称
+
+        Returns:
+            张量形状，未知时返回空元组
+        """
+        # 首先从analyzer的shape_map获取
+        shape = self.analyzer._get_tensor_shape(tensor_name)
+        if shape:
+            return shape
+
+        # 检查initializer中的权重
+        for init in self.analyzer.model.graph.initializer:
+            if init.name == tensor_name:
+                return tuple(init.dims)
+
+        # 检查Constant节点的输出
+        for node in self.analyzer.model.graph.node:
+            if node.op_type == "Constant" and tensor_name in node.output:
+                # 获取Constant的值
+                for attr in node.attribute:
+                    if attr.name == "value":
+                        # 从tensor中获取形状
+                        if hasattr(attr, "t") and attr.t:
+                            return tuple(attr.t.dims) if attr.t.dims else ()
+        return ()
+
+    def _check_weight_shape_compatibility(
+        self,
+        node: onnx.NodeProto,
+        axis: int,
+    ) -> bool:
+        """检查权重形状是否与split兼容
+
+        如果权重在切分轴上的维度与数据输入相同且大于1，
+        则split会导致形状不匹配。
+
+        Args:
+            node: 要切分的节点
+            axis: 切分轴
+
+        Returns:
+            True 如果兼容（可以split），False 如果不兼容
+        """
+        # 收集所有非权重输入在切分轴上的维度
+        data_input_dims = []
+        weight_input_dims = []
+        has_unknown_shape = False  # 跟踪是否有未知形状
+
+        for input_name in node.input:
+            if not input_name:
+                continue
+
+            shape = self._get_tensor_shape(input_name)
+            if not shape or len(shape) <= axis:
+                # 形状未知或在切分轴之外，跳过
+                if not shape:
+                    has_unknown_shape = True
+                continue
+
+            dim = shape[axis]
+            if self._is_weight(input_name):
+                weight_input_dims.append(dim)
+            else:
+                data_input_dims.append(dim)
+
+        # 如果有未知形状，假设兼容（保守处理）
+        if has_unknown_shape:
+            return True
+
+        # 如果没有权重输入，可以split
+        if not weight_input_dims:
+            return True
+
+        # 如果没有非权重输入，不split
+        if not data_input_dims:
+            return False
+
+        # 检查是否存在形状冲突
+        # 如果权重在切分轴上的维度 > 1 且与数据输入的维度相同，则不兼容
+        for weight_dim in weight_input_dims:
+            for data_dim in data_input_dims:
+                if weight_dim > 1 and weight_dim == data_dim:
+                    # 形状冲突：权重的batch维度与数据相同
+                    # split数据会导致形状不匹配
+                    return False
+
+        return True
+
     def _create_input_splits(
         self,
         graph: onnx.GraphProto,
@@ -211,6 +308,11 @@ class GraphTransformer:
         Returns:
             (要添加的Split节点列表, 输入名->切分输出名的映射字典)
         """
+        # 检查权重形状兼容性
+        if not self._check_weight_shape_compatibility(node, plan.axis):
+            # 权重形状不兼容，不创建任何split
+            return [], {}
+
         split_nodes = []
         input_split_map = {}
 
