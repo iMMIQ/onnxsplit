@@ -12,7 +12,7 @@ class ConfigMergeError(Exception):
 def merge_cli_args(
     config: SplitConfig,
     cli_parts: int | None,
-    cli_max_memory: int | None,
+    cli_max_memory: float | None,
 ) -> SplitConfig:
     """合并CLI参数到配置中。
 

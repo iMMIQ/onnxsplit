@@ -83,6 +83,16 @@ def test_invalid_cli_max_memory():
         merge_cli_args(config, cli_parts=None, cli_max_memory=-100)
 
 
+def test_decimal_max_memory():
+    """测试小数max_memory值"""
+    config = SplitConfig(global_config=GlobalConfig(default_parts=2))
+    result = merge_cli_args(config, cli_parts=None, cli_max_memory=1.5)
+    assert result.global_config.max_memory_mb == 1.5
+
+    result = merge_cli_args(config, cli_parts=None, cli_max_memory=0.25)
+    assert result.global_config.max_memory_mb == 0.25
+
+
 def test_merge_preserves_operators():
     """测试合并保留operators配置"""
     config = SplitConfig(

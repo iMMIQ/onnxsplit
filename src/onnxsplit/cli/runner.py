@@ -47,7 +47,7 @@ class RunContext:
     output_dir: str = "output"
     config_path: Optional[str] = None
     cli_parts: Optional[int] = None
-    cli_max_memory: Optional[int] = None
+    cli_max_memory: Optional[float] = None
     verbose: bool = False
     quiet: bool = False
     verify: bool = False
@@ -148,7 +148,7 @@ def _load_config(config_path: Optional[str]) -> Optional[SplitConfig]:
 def _prepare_config(
     file_config: Optional[SplitConfig],
     cli_parts: Optional[int],
-    cli_max_memory: Optional[int],
+    cli_max_memory: Optional[float],
 ) -> SplitConfig:
     """Prepare final configuration by merging file config with CLI args.
 

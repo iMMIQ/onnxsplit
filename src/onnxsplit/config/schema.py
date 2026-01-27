@@ -9,7 +9,7 @@ class GlobalConfig:
     """全局配置"""
 
     default_parts: int = 1
-    max_memory_mb: Optional[int] = None
+    max_memory_mb: Optional[float] = None
 
 
 @dataclass

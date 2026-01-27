@@ -64,11 +64,11 @@ def split(
         "-p",
         help="Number of parts to split the model into.",
     ),
-    max_memory: Optional[int] = typer.Option(
+    max_memory: Optional[float] = typer.Option(
         None,
         "--max-memory",
         "-m",
-        help="Max memory per split (MB).",
+        help="Max memory per split (MB). Supports decimal values for finer control.",
     ),
     output: Optional[str] = typer.Option(
         None,
