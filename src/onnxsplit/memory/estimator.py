@@ -8,9 +8,7 @@ from onnx import TensorProto
 from onnxsplit.analyzer.model import ModelAnalyzer
 from onnxsplit.analyzer.operator import OperatorInfo
 from onnxsplit.analyzer.tensor import dtype_to_bytes
-
-# MB = 1024 * 1024 bytes
-MB = 1024 * 1024
+from onnxsplit.utils.constants import BYTES_PER_MB
 
 
 def estimate_tensor_memory(shape: tuple[int, ...], dtype: int) -> int:
@@ -48,7 +46,7 @@ class TensorMemoryInfo:
     @property
     def size_mb(self) -> float:
         """内存大小（MB）"""
-        return self.memory_bytes / MB
+        return self.memory_bytes / BYTES_PER_MB
 
     @property
     def dtype_name(self) -> str:
@@ -157,7 +155,7 @@ class MemoryEstimator:
                     weights_memory += self._tensor_memory[input_name].memory_bytes
 
         total_memory = input_memory + output_memory + weights_memory
-        total_memory_mb = total_memory / MB
+        total_memory_mb = total_memory / BYTES_PER_MB
 
         # 更新峰值内存
         if total_memory_mb > self._peak_memory_mb:
@@ -166,9 +164,9 @@ class MemoryEstimator:
         self._operator_memory[op_info.name] = OperatorMemoryInfo(
             operator_name=op_info.name,
             op_type=op_info.op_type,
-            input_memory_mb=input_memory / MB,
-            output_memory_mb=output_memory / MB,
-            weights_memory_mb=weights_memory / MB,
+            input_memory_mb=input_memory / BYTES_PER_MB,
+            output_memory_mb=output_memory / BYTES_PER_MB,
+            weights_memory_mb=weights_memory / BYTES_PER_MB,
             total_memory_mb=total_memory_mb,
             peak_memory_mb=total_memory_mb,  # 简化估算
         )
