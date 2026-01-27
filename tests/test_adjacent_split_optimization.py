@@ -240,3 +240,46 @@ class TestAdjacentSplitOptimization:
                 # Shape should be [2, 10] (half of [4, 10])
                 shape = [d.dim_value for d in value_info.type.tensor_type.shape.dim]
                 assert shape == [2, 10], f"Expected shape [2, 10], got {shape}"
+
+    def test_find_upstream_split_info(self, adjacent_ops_model: onnx.ModelProto) -> None:
+        """Test the _find_upstream_split_info helper method.
+
+        Before split: should return None (no upstream split).
+        After Matmul split: should detect the upstream split/concat.
+        """
+        analyzer = ModelAnalyzer(adjacent_ops_model)
+        transformer = GraphTransformer(analyzer)
+
+        # Before split - no upstream split
+        add_node = next(n for n in adjacent_ops_model.graph.node if n.name == "add1")
+        upstream_info = transformer._find_upstream_split_info(
+            adjacent_ops_model.graph, "matmul_out", add_node
+        )
+        assert upstream_info is None, "No upstream split before transformation"
+
+        # After splitting Matmul
+        matmul_plan = SplitPlan(operator_name="matmul1", parts=2, axis=0, reason="batch split")
+        model_after = transformer.apply_split_plan(matmul_plan)
+
+        # Find the concat node that merges matmul outputs
+        concat_node = next(
+            (n for n in model_after.graph.node if n.op_type == "Concat" and "matmul" in n.name.lower()),
+            None,
+        )
+        assert concat_node is not None, "Should have concat after matmul split"
+
+        # Check upstream split info from add's perspective
+        # Need to re-create transformer with new model
+        new_analyzer = ModelAnalyzer.from_model_proto(model_after)
+        new_transformer = GraphTransformer(new_analyzer)
+        add_node_after = next(n for n in model_after.graph.node if n.name == "add1")
+        upstream_info_after = new_transformer._find_upstream_split_info(
+            model_after.graph, "matmul_out", add_node_after
+        )
+        # Should detect that there's a concat, but we need to trace back to the split
+        assert upstream_info_after is not None, "Should detect upstream concat/split"
+        parts, axis, outputs = upstream_info_after
+        assert parts == 2, f"Should detect 2 parts, got {parts}"
+        assert axis == 0, f"Should detect axis 0, got {axis}"
+        # Outputs should be the split outputs from matmul
+        assert len(outputs) == 2, f"Should have 2 outputs, got {len(outputs)}"

@@ -260,6 +260,104 @@ class GraphTransformer:
 
         return None
 
+    def _find_upstream_split_info(
+        self,
+        graph: onnx.GraphProto,
+        input_name: str,
+        node: onnx.NodeProto,
+    ) -> tuple[int, int, list[str]] | None:
+        """查找上游节点的切分信息
+
+        如果输入来自一个已被切分的节点，返回切分信息。
+        支持两种情况：
+        1. 输入直接来自切分节点的部分输出（带_split_后缀）
+        2. 输入来自Concat节点，而Concat的输入来自切分节点的部分输出
+
+        Args:
+            graph: ONNX图
+            input_name: 当前节点的输入名称
+            node: 当前节点（用于避免自我引用）
+
+        Returns:
+            (parts, axis, split_output_names) 元组，如果上游未切分则返回None
+            split_output_names 是切分后的输出名称列表
+        """
+        # Case 2: 输入来自Concat，而Concat的输入来自切分节点
+        # 这是主要情况 - 当上游节点被切分后，其输出会通过Concat合并
+        producer = self.analyzer.get_tensor_producer(input_name)
+        if producer:
+            # 找到生产者节点
+            producer_node = None
+            for graph_node in graph.node:
+                if graph_node.name == producer:
+                    producer_node = graph_node
+                    break
+
+            if producer_node and producer_node.op_type == "Concat":
+                # Concat的输入就是切分后的输出
+                concat_inputs = list(producer_node.input)
+                if not concat_inputs:
+                    return None
+
+                # 验证这些输入是否来自同一个源节点的切分
+                # 提取基础名称（去掉后缀数字，如 matmul_out_0 -> matmul_out）
+                base_names = set()
+                for inp in concat_inputs:
+                    # 移除_数字后缀（例如 matmul_out_0 -> matmul_out）
+                    parts = inp.rsplit("_", 1)
+                    if len(parts) == 2 and parts[1].isdigit():
+                        base_names.add(parts[0])
+                    else:
+                        base_names.add(inp)
+
+                # 如果所有输入来自同一个基础名称，说明是切分节点
+                if len(base_names) == 1:
+                    # 找到对应的split节点获取axis
+                    for graph_node in graph.node:
+                        if graph_node.op_type == "Split" and set(graph_node.output) == set(concat_inputs):
+                            axis = 0
+                            for attr in graph_node.attribute:
+                                if attr.name == "axis":
+                                    axis = attr.i
+                                    break
+                            return (len(concat_inputs), axis, concat_inputs)
+
+                    # 如果找不到split节点，从concat推断axis
+                    axis = 0
+                    for attr in producer_node.attribute:
+                        if attr.name == "axis":
+                            axis = attr.i
+                            break
+                    return (len(concat_inputs), axis, concat_inputs)
+
+        # Case 1: 输入直接来自切分节点（带_split_后缀）
+        # 检查是否有同名的多个_split_输出
+        split_outputs = []
+        for graph_node in graph.node:
+            if graph_node == node:
+                continue
+            for output_name in graph_node.output:
+                # 检查是否是带_split_后缀的同源输出
+                # 例如: matmul_out_split_0, matmul_out_split_1 都属于 matmul_out
+                if output_name.startswith(input_name + "_split_"):
+                    split_outputs.append(output_name)
+
+        if split_outputs:
+            # 找到对应的split节点来获取parts和axis
+            for graph_node in graph.node:
+                if graph_node.op_type == "Split" and len(split_outputs) > 0:
+                    # 检查这个split的输出是否匹配我们找到的split_outputs
+                    if set(graph_node.output) == set(split_outputs):
+                        # 获取axis
+                        axis = 0
+                        for attr in graph_node.attribute:
+                            if attr.name == "axis":
+                                axis = attr.i
+                                break
+                        return (len(split_outputs), axis, split_outputs)
+
+        return None
+
     def _needs_output_merge(self, node: onnx.NodeProto) -> bool:
         """检查是否需要在输出端插入Concat"""
         for output_name in node.output:
