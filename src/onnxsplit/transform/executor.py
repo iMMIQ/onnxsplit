@@ -398,6 +398,29 @@ class GraphTransformer:
             if self._is_weight(input_name):
                 continue
 
+            # 检查张量形状是否支持在指定轴上切分
+            tensor_shape = self._get_tensor_shape(input_name)
+            # 如果形状已知且rank小于等于切分轴，无法切分，跳过
+            # 注意：空元组()可能表示标量或未知形状，需要额外检查
+            # 只有当非空形状的rank<=axis时才跳过
+            if tensor_shape is not None and len(tensor_shape) > 0 and len(tensor_shape) <= plan.axis:
+                # 张量的rank小于等于切分轴，无法切分
+                continue
+            # 对于空元组（可能是标量或未知），如果是标量则跳过
+            # 标量在任何axis上都无法切分
+            if tensor_shape is not None and len(tensor_shape) == 0 and plan.axis >= 0:
+                # 检查是否是真正的标量（在value_info中有shape=[]的信息）
+                # 如果是未知形状，我们让运行时决定
+                is_scalar = False
+                for vi in self.analyzer.model.graph.value_info:
+                    if vi.name == input_name:
+                        if vi.type.tensor_type.HasField('shape'):
+                            if len(vi.type.tensor_type.shape.dim) == 0:
+                                is_scalar = True
+                        break
+                if is_scalar:
+                    continue
+
             # 首先检查是否存在任何使用该输入的split节点（无论axis）
             any_split = self._find_any_split_on_input(graph, input_name)
 

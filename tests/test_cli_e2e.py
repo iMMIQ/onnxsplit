@@ -33,6 +33,15 @@ def resnet18_model_path() -> Path:
     return path
 
 
+@pytest.fixture
+def operator_coverage_model_path() -> Path:
+    """operator_coverage模型路径 - 覆盖多种算子类型"""
+    path = Path(__file__).parent.parent / "models" / "operator_coverage.onnx"
+    if not path.exists():
+        pytest.skip(f"Model file not found: {path}")
+    return path
+
+
 class TestResNet18CLI:
     """使用ResNet18模型测试CLI - 完整工作流"""
 
@@ -337,3 +346,219 @@ class TestCLIWithRuntime:
             split_model_path = Path("output") / "split_model.onnx"
             sess = ort.InferenceSession(str(split_model_path))
             assert sess is not None
+
+
+class TestOperatorCoverageCLI:
+    """使用operator_coverage模型测试CLI - 覆盖多种算子类型
+
+    该模型包含27种不同的ONNX算子类型，用于测试split工具对各种算子的处理能力。
+    """
+
+    def test_operator_coverage_split_with_verify(
+        self, operator_coverage_model_path: Path
+    ) -> None:
+        """测试operator_coverage split命令，开启verify"""
+        with runner.isolated_filesystem():
+            model_path = Path("operator_coverage.onnx")
+            model_path.write_bytes(operator_coverage_model_path.read_bytes())
+
+            result = runner.invoke(
+                app,
+                ["split", str(model_path), "--verify", "--no-simplify", "--output", "output"]
+            )
+
+            assert result.exit_code == 0, f"Split failed: {result.stderr}"
+            assert Path("output").exists()
+            assert (Path("output") / "split_model.onnx").exists()
+            assert (Path("output") / "split_report.json").exists()
+
+    def test_operator_coverage_split_with_verify_and_simplify(
+        self, operator_coverage_model_path: Path
+    ) -> None:
+        """测试operator_coverage split命令，同时开启verify和simplify（默认）"""
+        with runner.isolated_filesystem():
+            model_path = Path("operator_coverage.onnx")
+            model_path.write_bytes(operator_coverage_model_path.read_bytes())
+
+            result = runner.invoke(
+                app,
+                ["split", str(model_path), "--verify", "-p", "2", "--output", "output"]
+            )
+
+            assert result.exit_code == 0, f"Split failed: {result.stderr}"
+            assert Path("output").exists()
+            assert (Path("output") / "split_model.onnx").exists()
+            assert (Path("output") / "split_report.json").exists()
+
+    def test_operator_coverage_split(self, operator_coverage_model_path: Path) -> None:
+        """测试operator_coverage模型的split命令"""
+        with runner.isolated_filesystem():
+            model_path = Path("operator_coverage.onnx")
+            model_path.write_bytes(operator_coverage_model_path.read_bytes())
+
+            result = runner.invoke(
+                app,
+                ["split", str(model_path), "--no-simplify", "--output", "output"]
+            )
+
+            assert result.exit_code == 0, f"Split failed: {result.stderr}"
+            assert Path("output").exists()
+            assert (Path("output") / "split_model.onnx").exists()
+            assert (Path("output") / "split_report.json").exists()
+
+    def test_operator_coverage_split_with_parts(self, operator_coverage_model_path: Path) -> None:
+        """测试operator_coverage指定parts参数"""
+        with runner.isolated_filesystem():
+            model_path = Path("operator_coverage.onnx")
+            model_path.write_bytes(operator_coverage_model_path.read_bytes())
+
+            result = runner.invoke(
+                app,
+                ["split", str(model_path), "--parts", "3", "--no-simplify", "--output", "output"]
+            )
+
+            assert result.exit_code == 0, f"Split failed: {result.stderr}"
+            assert Path("output").exists()
+
+    def test_operator_coverage_split_with_max_memory(
+        self, operator_coverage_model_path: Path
+    ) -> None:
+        """测试operator_coverage使用max_memory参数"""
+        with runner.isolated_filesystem():
+            model_path = Path("operator_coverage.onnx")
+            model_path.write_bytes(operator_coverage_model_path.read_bytes())
+
+            result = runner.invoke(
+                app,
+                ["split", str(model_path), "--max-memory", "100", "--no-simplify", "--output", "output"]
+            )
+
+            assert result.exit_code == 0, f"Split failed: {result.stderr}"
+            assert Path("output").exists()
+
+    def test_operator_coverage_analyze(self, operator_coverage_model_path: Path) -> None:
+        """测试operator_coverage的analyze命令"""
+        import json
+
+        with runner.isolated_filesystem():
+            model_path = Path("operator_coverage.onnx")
+            model_path.write_bytes(operator_coverage_model_path.read_bytes())
+
+            result = runner.invoke(
+                app,
+                ["analyze", str(model_path), "--output", "output"]
+            )
+
+            assert result.exit_code == 0
+            assert Path("output").exists()
+            assert (Path("output") / "analysis_report.json").exists()
+            assert "Model Analysis:" in result.stdout
+
+            # 验证报告包含多种算子类型
+            report_path = Path("output") / "analysis_report.json"
+            report = json.loads(report_path.read_text())
+            assert "operators" in report
+            # operator_coverage模型应该包含多种算子
+            assert len(report["operators"]) > 20  # 至少20种不同的算子
+
+    def test_operator_coverage_validate(self, operator_coverage_model_path: Path) -> None:
+        """测试operator_coverage的validate命令"""
+        with runner.isolated_filesystem():
+            model_path = Path("operator_coverage.onnx")
+            model_path.write_bytes(operator_coverage_model_path.read_bytes())
+
+            result = runner.invoke(app, ["validate", str(model_path)])
+
+            assert result.exit_code == 0
+            assert "validation passed" in result.stdout.lower()
+
+    def test_operator_coverage_split_report_content(
+        self, operator_coverage_model_path: Path
+    ) -> None:
+        """测试operator_coverage的split报告内容"""
+        import json
+
+        with runner.isolated_filesystem():
+            model_path = Path("operator_coverage.onnx")
+            model_path.write_bytes(operator_coverage_model_path.read_bytes())
+
+            result = runner.invoke(
+                app,
+                ["split", str(model_path), "--no-simplify", "--output", "output"]
+            )
+
+            assert result.exit_code == 0
+
+            report_path = Path("output") / "split_report.json"
+            report = json.loads(report_path.read_text())
+
+            # 验证报告结构
+            assert "original_operators" in report
+            assert "split_operators" in report
+            assert "unsplit_operators" in report
+            assert "total_parts" in report
+            assert "plans" in report
+
+            # operator_coverage模型有60个节点，但Constant节点不算可切分算子
+            # 所以original_operators应该小于60
+            assert report["original_operators"] > 0
+            assert report["split_operators"] >= 0
+            assert report["unsplit_operators"] >= 0
+
+
+@pytest.mark.skipif(not ONNXRUNTIME_AVAILABLE, reason="onnxruntime not available")
+class TestOperatorCoverageWithRuntime:
+    """使用onnxruntime验证operator_coverage模型"""
+
+    def test_operator_coverage_split_validatable(
+        self, operator_coverage_model_path: Path
+    ) -> None:
+        """测试operator_coverage split后的模型可以被onnxruntime加载"""
+        with runner.isolated_filesystem():
+            model_path = Path("operator_coverage.onnx")
+            model_path.write_bytes(operator_coverage_model_path.read_bytes())
+
+            result = runner.invoke(
+                app,
+                ["split", str(model_path), "--verify", "--no-simplify", "--output", "output"]
+            )
+
+            assert result.exit_code == 0
+
+            # 用onnxruntime加载split后的模型
+            split_model_path = Path("output") / "split_model.onnx"
+            sess = ort.InferenceSession(str(split_model_path))
+            assert sess is not None
+
+    def test_operator_coverage_analyze_matches_model(
+        self, operator_coverage_model_path: Path
+    ) -> None:
+        """测试operator_coverage的analyze报告与实际模型一致"""
+        import json
+
+        with runner.isolated_filesystem():
+            model_path = Path("operator_coverage.onnx")
+            model_path.write_bytes(operator_coverage_model_path.read_bytes())
+
+            result = runner.invoke(
+                app,
+                ["analyze", str(model_path), "--output", "output"]
+            )
+
+            assert result.exit_code == 0
+
+            report_path = Path("output") / "analysis_report.json"
+            report = json.loads(report_path.read_text())
+
+            # 用onnxruntime验证
+            sess = ort.InferenceSession(str(model_path))
+            assert len(sess.get_inputs()) == len(report["inputs"])
+            assert len(sess.get_outputs()) == len(report["outputs"])
+
+            # 验证输入输出名称
+            report_input_names = [inp["name"] for inp in report["inputs"]]
+            report_output_names = [out["name"] for out in report["outputs"]]
+            actual_input_names = [inp.name for inp in sess.get_inputs()]
+            actual_output_names = [out.name for out in sess.get_outputs()]
+            assert set(report_input_names) == set(actual_input_names)
+            assert set(report_output_names) == set(actual_output_names)
