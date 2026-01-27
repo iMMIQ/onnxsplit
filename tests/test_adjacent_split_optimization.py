@@ -283,3 +283,23 @@ class TestAdjacentSplitOptimization:
         assert axis == 0, f"Should detect axis 0, got {axis}"
         # Outputs should be the split outputs from matmul
         assert len(outputs) == 2, f"Should have 2 outputs, got {len(outputs)}"
+
+    def test_needs_input_split_with_upstream_split(
+        self, adjacent_ops_model: onnx.ModelProto
+    ) -> None:
+        """Test that _needs_input_split returns False when upstream is already split with same config."""
+        analyzer = ModelAnalyzer(adjacent_ops_model)
+        transformer = GraphTransformer(analyzer)
+
+        # Split Matmul first
+        matmul_plan = SplitPlan(operator_name="matmul1", parts=2, axis=0, reason="batch split")
+        model_after = transformer.apply_split_plan(matmul_plan)
+
+        # Now check Add node
+        new_analyzer = ModelAnalyzer.from_model_proto(model_after)
+        new_transformer = GraphTransformer(new_analyzer)
+
+        add_node = next(n for n in model_after.graph.node if n.name == "add1")
+        # With optimization: should detect upstream split and not need new input split
+        needs_split = new_transformer._needs_input_split(add_node, plan_parts=2, plan_axis=0)
+        assert needs_split is False, "Should not need input split when upstream already split with same config"

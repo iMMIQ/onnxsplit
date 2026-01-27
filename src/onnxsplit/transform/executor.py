@@ -73,14 +73,14 @@ class GraphTransformer:
         # 插入输入切分（如果需要），并建立输入到split输出的映射
         # 检查图中是否已存在对同一输入的Split节点，避免重复创建
         input_split_map = {}  # 原始输入名 -> 切分后的输出名列表
-        if self._needs_input_split(target_node):
+        if self._needs_input_split(target_node, plan_parts=plan.parts, plan_axis=plan.axis):
             split_nodes, input_split_map = self._create_input_splits(
                 new_graph, target_node, plan
             )
             nodes_to_add.extend(split_nodes)
 
         # 如果没有输入被split（由于形状不兼容等原因），返回原始模型
-        if not input_split_map and self._needs_input_split(target_node):
+        if not input_split_map and self._needs_input_split(target_node, plan_parts=plan.parts, plan_axis=plan.axis):
             # 需要split但无法split（形状不兼容），返回原模型副本
             return copy.deepcopy(self.analyzer.model)
 
@@ -125,13 +125,39 @@ class GraphTransformer:
 
         return new_model
 
-    def _needs_input_split(self, node: onnx.NodeProto) -> bool:
-        """检查是否需要在输入端插入Split"""
+    def _needs_input_split(
+        self, node: onnx.NodeProto, plan_parts: int | None = None, plan_axis: int | None = None
+    ) -> bool:
+        """检查是否需要在输入端插入Split
+
+        Args:
+            node: 要检查的节点
+            plan_parts: 切分方案的份数（用于检测上游是否已按相同配置切分）
+            plan_axis: 切分方案的轴（用于检测上游是否已按相同配置切分）
+
+        Returns:
+            True 如果需要插入Split，False 否则
+        """
         for input_name in node.input:
             if not input_name:
                 continue
+
+            # 检查是否是权重
+            if self._is_weight(input_name):
+                continue
+
             producer = self.analyzer.get_tensor_producer(input_name)
             if producer is None or producer != node.name:
+                # 如果提供了plan信息，检查上游是否已按相同配置切分
+                if plan_parts is not None and plan_axis is not None:
+                    upstream_info = self._find_upstream_split_info(
+                        self.analyzer.model.graph, input_name, node
+                    )
+                    if upstream_info is not None:
+                        upstream_parts, upstream_axis, _ = upstream_info
+                        # 上游已按相同配置切分，不需要再split
+                        if upstream_parts == plan_parts and upstream_axis == plan_axis:
+                            return False
                 return True
         return False
 
