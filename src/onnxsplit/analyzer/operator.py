@@ -6,6 +6,7 @@ from typing import Any
 from onnx import NodeProto
 
 from onnxsplit.analyzer.tensor import TensorMetadata
+from onnxsplit.utils.constants import BYTES_PER_MB
 
 
 @dataclass
@@ -39,7 +40,7 @@ class OperatorInfo:
             if any(d < 0 for d in tensor.shape if d != 0):
                 continue
             total += tensor.memory_bytes
-        return total / (1024 * 1024)
+        return total / BYTES_PER_MB
 
     @property
     def output_memory_mb(self) -> float:
@@ -49,7 +50,7 @@ class OperatorInfo:
             if any(d < 0 for d in tensor.shape if d != 0):
                 continue
             total += tensor.memory_bytes
-        return total / (1024 * 1024)
+        return total / BYTES_PER_MB
 
     @property
     def total_memory_mb(self) -> float:
