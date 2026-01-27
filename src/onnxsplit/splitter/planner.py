@@ -181,12 +181,15 @@ class SplitPlanner:
         Returns:
             True如果可以均匀分割，False否则
         """
+        has_non_weight_input = False
+
         # 检查所有输入张量
         for tensor in op_info.input_tensors:
             # 跳过权重（常数）
             if self._is_weight(tensor.name):
                 continue
 
+            has_non_weight_input = True
             shape = tensor.shape
             # 检查形状是否有效
             if not shape or len(shape) <= axis:
@@ -202,7 +205,8 @@ class SplitPlanner:
             if dim_size < parts or dim_size % parts != 0:
                 return False
 
-        return True
+        # 如果没有非权重输入，不能分割
+        return has_non_weight_input
 
     def _find_suitable_parts(
         self,
@@ -244,8 +248,8 @@ class SplitPlanner:
             dim_sizes.append(dim_size)
 
         if not dim_sizes:
-            # 没有有效维度，使用初始值
-            return (True, initial_parts, None)
+            # 没有有效维度（所有输入都是权重），不能分割
+            return (False, None, None)
 
         # 检查初始 parts 是否适用于所有维度
         initial_valid = all(
@@ -291,25 +295,35 @@ class SplitPlanner:
             if node.op_type == "Constant" and tensor_name in node.output:
                 return True
 
-        # 检查是否由DequantizeLinear或QuantizeLinear节点产生，且所有输入都是权重
-        # 这种情况通常出现在QDQ格式的量化模型中，其中权重的QDQ节点不应被视为数据流
+        # 找到产生该张量的节点
         producer_node = None
         for node in self.analyzer.model.graph.node:
             if tensor_name in node.output:
                 producer_node = node
                 break
 
-        if producer_node and producer_node.op_type in ("DequantizeLinear", "QuantizeLinear"):
-            # 检查QDQ节点的所有输入是否都是权重
-            all_inputs_are_weights = True
+        if not producer_node:
+            return False
+
+        # 检查是否由DequantizeLinear或QuantizeLinear节点产生，且所有输入都是权重
+        # 这种情况通常出现在QDQ格式的量化模型中，其中权重的QDQ节点不应被视为数据流
+        if producer_node.op_type in ("DequantizeLinear", "QuantizeLinear"):
+            # 检查QDQ节点的所有输入是否都是initializers（直接权重）
+            all_inputs_are_initializers = True
             for input_name in producer_node.input:
                 if not input_name:
                     continue
-                if not self._is_weight(input_name):
-                    all_inputs_are_weights = False
+                if not any(init.name == input_name for init in self.analyzer.model.graph.initializer):
+                    all_inputs_are_initializers = False
                     break
-            if all_inputs_are_weights:
+            if all_inputs_are_initializers:
                 return True
+
+        # 检查是否由Identity节点产生，且输入是权重
+        if producer_node.op_type == "Identity":
+            for input_name in producer_node.input:
+                if input_name and self._is_weight(input_name):
+                    return True
 
         return False
 

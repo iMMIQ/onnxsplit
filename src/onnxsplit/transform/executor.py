@@ -801,6 +801,7 @@ class GraphTransformer:
         """检查张量是否是直接的权重（不包括常数计算）
 
         这是_is_weight的非递归版本，用于避免无限递归。
+        包括：initializers, Constant节点输出, 以及权重QDQ节点的输出
 
         Args:
             tensor_name: 张量名称
@@ -815,6 +816,19 @@ class GraphTransformer:
         for node in self.analyzer.model.graph.node:
             if node.op_type == "Constant" and tensor_name in node.output:
                 return True
+        # 检查是否由权重QDQ节点产生（所有输入都是initializers）
+        for node in self.analyzer.model.graph.node:
+            if tensor_name in node.output and node.op_type in ("DequantizeLinear", "QuantizeLinear"):
+                # 检查所有输入是否都是initializers
+                all_inputs_are_initializers = True
+                for input_name in node.input:
+                    if not input_name:
+                        continue
+                    if not any(init.name == input_name for init in self.analyzer.model.graph.initializer):
+                        all_inputs_are_initializers = False
+                        break
+                if all_inputs_are_initializers:
+                    return True
         return False
 
     def _update_graph_nodes(
