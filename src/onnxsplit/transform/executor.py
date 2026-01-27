@@ -185,6 +185,45 @@ class GraphTransformer:
 
         return None
 
+    def _find_any_existing_split(
+        self,
+        graph: onnx.GraphProto,
+        input_name: str,
+        axis: int,
+    ) -> tuple[int, onnx.NodeProto] | None:
+        """查找图中是否已存在对指定输入的任意Split节点
+
+        无论parts是多少，只要输入和axis匹配就返回。
+
+        Args:
+            graph: ONNX图
+            input_name: 要查找的输入张量名称
+            axis: 切分轴
+
+        Returns:
+            (parts, split_node) 元组，如果不存在则返回None
+        """
+        for node in graph.node:
+            if node.op_type != "Split":
+                continue
+
+            # 检查输入是否匹配
+            if not node.input or node.input[0] != input_name:
+                continue
+
+            # 检查axis属性是否匹配
+            node_axis = None
+            for attr in node.attribute:
+                if attr.name == "axis":
+                    node_axis = attr.i
+                    break
+
+            if node_axis == axis:
+                # 找到匹配的Split节点，返回其parts和节点
+                return (len(node.output), node)
+
+        return None
+
     def _needs_output_merge(self, node: onnx.NodeProto) -> bool:
         """检查是否需要在输出端插入Concat"""
         for output_name in node.output:
@@ -323,16 +362,22 @@ class GraphTransformer:
             if self._is_weight(input_name):
                 continue
 
-            # 检查是否已存在匹配的Split节点
-            existing_outputs = self._find_existing_split(
-                graph, input_name, plan.axis, plan.parts
+            # 检查是否已存在对同一输入的Split节点（无论parts是否匹配）
+            existing_split_with_parts = self._find_any_existing_split(
+                graph, input_name, plan.axis
             )
 
-            if existing_outputs is not None:
-                # 复用已存在的Split节点的输出
-                input_split_map[input_name] = existing_outputs
+            if existing_split_with_parts is not None:
+                existing_parts, existing_node = existing_split_with_parts
+                if existing_parts == plan.parts:
+                    # parts匹配，复用已存在的Split节点的输出
+                    input_split_map[input_name] = list(existing_node.output)
+                else:
+                    # parts不匹配，无法复用
+                    # 拒绝split以避免创建多个split节点使用同一输入
+                    return [], {}
             else:
-                # 创建新的Split节点
+                # 没有已存在的Split节点，创建新的
                 split_node = create_split_node(
                     input_name=input_name,
                     axis=plan.axis,
