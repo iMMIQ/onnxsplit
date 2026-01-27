@@ -99,18 +99,22 @@ class TestAdjacentSplitOptimization:
             [Matmul_0, Matmul_1] -> Concat -> matmul_out
             matmul_out -> Split -> [Add_0, Add_1]    <-- REDUNDANT!
         """
-        # First split: Matmul with parts=2, axis=0
-        analyzer = ModelAnalyzer(adjacent_ops_model)
-        transformer = GraphTransformer(analyzer)
-
+        # Create both plans upfront
         matmul_plan = SplitPlan(operator_name="matmul1", parts=2, axis=0, reason="test split")
+        add_plan = SplitPlan(operator_name="add1", parts=2, axis=0, reason="test split")
+
+        # First split: Matmul with parts=2, axis=0
+        # Pass the planned splits so Matmul knows Add will be split
+        planned_splits = {"add1": add_plan}
+        analyzer = ModelAnalyzer(adjacent_ops_model)
+        transformer = GraphTransformer(analyzer, planned_splits=planned_splits)
+
         model_after_matmul_split = transformer.apply_split_plan(matmul_plan)
 
         # Second split: Add with same config (parts=2, axis=0)
         analyzer2 = ModelAnalyzer(model_after_matmul_split)
         transformer2 = GraphTransformer(analyzer2)
 
-        add_plan = SplitPlan(operator_name="add1", parts=2, axis=0, reason="test split")
         final_model = transformer2.apply_split_plan(add_plan)
 
         # Verify the graph structure

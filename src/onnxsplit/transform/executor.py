@@ -16,13 +16,22 @@ class GraphTransformer:
     根据切分方案对ONNX图进行变换。
     """
 
-    def __init__(self, analyzer: ModelAnalyzer):
+    def __init__(
+        self,
+        analyzer: ModelAnalyzer,
+        planned_splits: dict[str, SplitPlan] | None = None,
+    ):
         """初始化变换器
 
         Args:
             analyzer: 模型分析器
+            planned_splits: 计划要切分的节点映射 {node_name: SplitPlan}
         """
         self.analyzer = analyzer
+        self._planned_splits = planned_splits or {}
+        # Track outputs that were split but not concatenated (for downstream nodes to reuse)
+        self._split_without_concat: dict[str, tuple[str, int, list[str]]] = {}
+        # Maps original output name -> (producer_name, axis, split_outputs)
 
     def apply_split_plan(self, plan: SplitPlan) -> onnx.ModelProto:
         """应用切分方案到模型
@@ -133,9 +142,14 @@ class GraphTransformer:
         nodes_to_add.extend(cloned_nodes)
 
         # 插入输出合并（如果需要）
-        if self._needs_output_merge(target_node):
+        if self._needs_output_merge(target_node, current_plan=plan):
             concat_nodes = self._create_output_merges(target_node, plan)
             nodes_to_add.extend(concat_nodes)
+        else:
+            # 不需要concat，记录split outputs供下游节点复用
+            for output_name in target_node.output:
+                split_outputs = [f"{output_name}_{j}" for j in range(plan.parts)]
+                self._split_without_concat[output_name] = (plan.operator_name, plan.axis, split_outputs)
 
         # 更新图
         self._update_graph_nodes(new_graph, nodes_to_remove, nodes_to_add)
@@ -315,9 +329,10 @@ class GraphTransformer:
         """查找上游节点的切分信息
 
         如果输入来自一个已被切分的节点，返回切分信息。
-        支持两种情况：
-        1. 输入直接来自切分节点的部分输出（带_split_后缀）
-        2. 输入来自Concat节点，而Concat的输入来自切分节点的部分输出
+        支持三种情况：
+        1. 输入来自之前跳过concat的split输出（记录在_split_without_concat中）
+        2. 输入直接来自切分节点的部分输出（带_split_后缀）
+        3. 输入来自Concat节点，而Concat的输入来自切分节点的部分输出
 
         Args:
             graph: ONNX图
@@ -328,6 +343,56 @@ class GraphTransformer:
             (parts, axis, split_output_names) 元组，如果上游未切分则返回None
             split_output_names 是切分后的输出名称列表
         """
+        # Case 0: 输入来自之前跳过concat的split输出
+        if input_name in self._split_without_concat:
+            producer_name, axis, split_outputs = self._split_without_concat[input_name]
+            return (len(split_outputs), axis, split_outputs)
+
+        # Case 0.5: 输入不存在于图中（因为上游split跳过了concat）
+        # 检查是否有 {input_name}_0, {input_name}_1, ... 这样的split输出存在
+        producer = self.analyzer.get_tensor_producer(input_name)
+        if producer is None:
+            # 输入没有生产者，可能是上游split跳过了concat
+            # 查找所有匹配 {input_name}_N 模式的输出
+            split_outputs = []
+            all_split_from_same_base = True
+            base_name = None
+            for graph_node in graph.node:
+                for output_name in graph_node.output:
+                    # 检查是否是 matmul_out_0, matmul_out_1 这样的模式
+                    if output_name.startswith(input_name + "_"):
+                        parts = output_name[len(input_name) + 1:].split("_", 1)
+                        if len(parts) == 1 and parts[0].isdigit():
+                            # 是 {input_name}_{数字} 的模式
+                            split_outputs.append(output_name)
+                            if base_name is None:
+                                base_name = input_name
+                            elif base_name != input_name:
+                                all_split_from_same_base = False
+
+            if split_outputs and all_split_from_same_base:
+                # 找到了split输出，需要推断axis
+                # 检查这些输出是否来自同一个节点的克隆
+                node_names = set()
+                for graph_node in graph.node:
+                    if any(out in split_outputs for out in graph_node.output):
+                        # 提取基础节点名称（去掉_split_N后缀）
+                        if "_split_" in graph_node.name:
+                            base = graph_node.name.rsplit("_split_", 1)[0]
+                            node_names.add(base)
+                        else:
+                            node_names.add(graph_node.name)
+
+                if len(node_names) == 1:
+                    # 所有split输出来自同一个节点
+                    # 可以从planned_splits推断axis
+                    for node_name in node_names:
+                        if node_name in self._planned_splits:
+                            axis = self._planned_splits[node_name].axis
+                            return (len(split_outputs), axis, split_outputs)
+                # 如果找不到axis信息，默认axis=0
+                return (len(split_outputs), 0, split_outputs)
+
         # Case 2: 输入来自Concat，而Concat的输入来自切分节点
         # 这是主要情况 - 当上游节点被切分后，其输出会通过Concat合并
         producer = self.analyzer.get_tensor_producer(input_name)
@@ -404,12 +469,50 @@ class GraphTransformer:
 
         return None
 
-    def _needs_output_merge(self, node: onnx.NodeProto) -> bool:
-        """检查是否需要在输出端插入Concat"""
+    def _needs_output_merge(
+        self,
+        node: onnx.NodeProto,
+        current_plan: SplitPlan | None = None,
+    ) -> bool:
+        """检查是否需要在输出端插入Concat
+
+        Args:
+            node: 要检查的节点
+            current_plan: 当前节点的切分方案（用于检查下游消费者）
+
+        Returns:
+            True 如果需要插入Concat，False 否则
+        """
         for output_name in node.output:
-            consumers = self.analyzer.get_tensor_consumers(output_name)
-            if consumers or self._is_model_output(output_name):
+            # 检查是否是模型输出
+            if self._is_model_output(output_name):
                 return True
+
+            # 获取消费者列表
+            consumers = self.analyzer.get_tensor_consumers(output_name)
+            if not consumers:
+                # 无消费者，可能是模型输出
+                return True
+
+            # 检查所有消费者的切分计划
+            all_consumers_split_with_same_config = True
+            for consumer_name in consumers:
+                consumer_plan = self._planned_splits.get(consumer_name)
+                if consumer_plan is None:
+                    # 消费者不在切分计划中，需要concat
+                    all_consumers_split_with_same_config = False
+                    break
+                if current_plan is not None:
+                    if consumer_plan.parts != current_plan.parts or consumer_plan.axis != current_plan.axis:
+                        # 消费者使用不同的切分配置，需要concat
+                        all_consumers_split_with_same_config = False
+                        break
+
+            if all_consumers_split_with_same_config and current_plan is not None:
+                # 所有消费者都使用相同的切分配置，不需要concat
+                continue
+
+            return True
         return False
 
     def _is_model_output(self, tensor_name: str) -> bool:
