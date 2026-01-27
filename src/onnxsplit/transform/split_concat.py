@@ -1,35 +1,13 @@
 """Split和Concat节点生成"""
 
-import re
 import onnx.helper
 from onnx import NodeProto, TensorProto
+
+from onnxsplit.utils.naming import sanitize_name_for_node
 
 # 模块级别的字典，用于存储Slice节点的初始器信息
 # 键为节点的id，值为初始器张量列表
 _slice_node_initializers: dict[int, list] = {}
-
-
-def _sanitize_name_for_node(name: str) -> str:
-    """清理张量名称以用作节点名称
-
-    ONNX节点名称不应包含某些特殊字符（如前导斜杠、空格等）。
-    此函数将特殊字符替换为下划线。
-
-    Args:
-        name: 原始名称
-
-    Returns:
-        清理后的名称
-    """
-    # 移除前导斜杠并替换其他特殊字符
-    cleaned = name.lstrip("/")
-    # 替换其他非法字符（除字母、数字、下划线、连字符外的字符）
-    cleaned = re.sub(r"[^a-zA-Z0-9_-]", "_", cleaned)
-    # 确保不以数字或连字符开头（某些系统不允许）
-    if cleaned and cleaned[0] in "0123456789-":
-        cleaned = "n_" + cleaned
-    # 如果清理后为空，返回默认名称
-    return cleaned or "tensor"
 
 
 def create_split_node(
@@ -58,7 +36,7 @@ def create_split_node(
 
     # 生成节点名称
     if node_name is None:
-        sanitized_prefix = _sanitize_name_for_node(output_prefix)
+        sanitized_prefix = sanitize_name_for_node(output_prefix)
         node_name = f"split_{sanitized_prefix}"
 
     # 创建节点
@@ -103,7 +81,7 @@ def create_concat_node(
     """
     # 生成节点名称
     if node_name is None:
-        sanitized_name = _sanitize_name_for_node(output_name)
+        sanitized_name = sanitize_name_for_node(output_name)
         node_name = f"concat_{sanitized_name}"
 
     node = onnx.helper.make_node(
@@ -142,7 +120,7 @@ def create_slice_node(
     """
     # 生成节点名称
     if node_name is None:
-        sanitized_name = _sanitize_name_for_node(output_name)
+        sanitized_name = sanitize_name_for_node(output_name)
         node_name = f"slice_{sanitized_name}"
 
     # 创建常量张量作为输入
