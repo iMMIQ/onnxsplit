@@ -363,7 +363,69 @@ class GraphTransformer:
         return concat_nodes
 
     def _is_weight(self, tensor_name: str) -> bool:
-        """检查张量是否是权重（包括Constant节点产生的）"""
+        """检查张量是否是权重（包括Constant节点和常数计算产生的）"""
+        # 检查是否在initializer中
+        if any(init.name == tensor_name for init in self.analyzer.model.graph.initializer):
+            return True
+        # 检查是否由Constant节点产生
+        for node in self.analyzer.model.graph.node:
+            if node.op_type == "Constant" and tensor_name in node.output:
+                return True
+        # 检查是否由常数计算节点产生（所有输入都是权重）
+        if self._is_constant_computation(tensor_name):
+            return True
+        return False
+
+    def _is_constant_computation(self, tensor_name: str) -> bool:
+        """检查张量是否是常数计算的结果
+
+        如果产生该张量的节点的所有输入都是权重/常数，
+        则该节点产生常数输出，应被视为权重。
+
+        Args:
+            tensor_name: 张量名称
+
+        Returns:
+            True 如果是常数计算的结果，False 否则
+        """
+        # 找到产生该张量的节点
+        producer_node = None
+        for node in self.analyzer.model.graph.node:
+            if tensor_name in node.output:
+                producer_node = node
+                break
+
+        # 没有生产者（可能是图输入）
+        if producer_node is None:
+            return False
+
+        # Constant节点已经在_is_weight中处理
+        if producer_node.op_type == "Constant":
+            return True
+
+        # 检查所有输入是否都是权重
+        for input_name in producer_node.input:
+            if not input_name:
+                continue
+            # 递归检查输入是否为权重
+            # 注意：这里不使用_is_weight，避免无限递归
+            if not self._is_direct_weight(input_name):
+                return False
+
+        # 所有输入都是权重，所以这个节点产生常数输出
+        return True
+
+    def _is_direct_weight(self, tensor_name: str) -> bool:
+        """检查张量是否是直接的权重（不包括常数计算）
+
+        这是_is_weight的非递归版本，用于避免无限递归。
+
+        Args:
+            tensor_name: 张量名称
+
+        Returns:
+            True 如果是直接权重，False 否则
+        """
         # 检查是否在initializer中
         if any(init.name == tensor_name for init in self.analyzer.model.graph.initializer):
             return True
