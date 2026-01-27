@@ -4,6 +4,8 @@ from dataclasses import dataclass
 
 from onnx import TensorProto
 
+from onnxsplit.utils.constants import BYTES_PER_MB
+
 _DTYPE_SIZE_MAP = {
     TensorProto.FLOAT: 4,
     TensorProto.FLOAT16: 2,
@@ -74,7 +76,7 @@ class TensorMetadata:
     @property
     def size_mb(self) -> float:
         """张量占用的内存大小（MB）"""
-        return self.memory_bytes / (1024 * 1024)
+        return self.memory_bytes / BYTES_PER_MB
 
     def __repr__(self) -> str:
         dtype_name = TensorProto.DataType.Name(self.dtype)
