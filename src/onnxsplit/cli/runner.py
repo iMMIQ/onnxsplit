@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
+import numpy as np
 import onnx
 import typer
 from onnx import ModelProto
@@ -403,11 +404,24 @@ def run_split(ctx: RunContext) -> RunResult:
                 if ctx.verbose and verify_result.max_diff > 0:
                     typer.echo(f"    Max difference: {verify_result.max_diff:.2e}")
             else:
+                # Verification failed - show detailed reason
+                reason = verify_result.failure_reason or "outputs differ"
                 typer.echo(
-                    typer.style(f"  ✗ Verification failed: outputs differ", fg=typer.colors.RED)
+                    typer.style(f"  ✗ Verification failed: {reason}", fg=typer.colors.RED)
                 )
                 if ctx.verbose:
-                    typer.echo(f"    Max difference: {verify_result.max_diff:.2e}")
+                    # Format max_diff appropriately
+                    max_diff = verify_result.max_diff
+                    if np.isneginf(max_diff) or np.isposinf(max_diff):
+                        typer.echo(f"    Max difference: inf")
+                    elif np.isnan(max_diff):
+                        typer.echo(f"    Max difference: nan (NaN values detected)")
+                    else:
+                        # Use higher precision for small values
+                        if abs(max_diff) < 0.005 and max_diff != 0:
+                            typer.echo(f"    Max difference: {max_diff:.10e}")
+                        else:
+                            typer.echo(f"    Max difference: {max_diff:.2e}")
 
         if not ctx.quiet:
             typer.echo("Model split successfully!")
