@@ -3,6 +3,7 @@
 import numpy as np
 from onnx import ModelProto
 
+from onnxsplit.utils.constants import DEFAULT_VERIFY_ATOL, DEFAULT_VERIFY_RTOL
 from onnxsplit.verify.result import VerifyResult
 from onnxsplit.verify.runtime import RuntimeChecker, ONNXRUNTIME_AVAILABLE
 
@@ -10,8 +11,8 @@ from onnxsplit.verify.runtime import RuntimeChecker, ONNXRUNTIME_AVAILABLE
 def verify_equivalence(
     original_model: ModelProto,
     split_model: ModelProto,
-    rtol: float = 1e-4,
-    atol: float = 1e-5,
+    rtol: float = DEFAULT_VERIFY_RTOL,
+    atol: float = DEFAULT_VERIFY_ATOL,
     seed: int = 42,
     verbose: bool = False,
 ) -> VerifyResult:

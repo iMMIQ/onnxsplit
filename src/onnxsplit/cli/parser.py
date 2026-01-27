@@ -5,6 +5,8 @@ from typing import Optional
 
 import typer
 
+from onnxsplit.utils.constants import DEFAULT_VERIFY_ATOL, DEFAULT_VERIFY_RTOL
+
 app = typer.Typer(
     help="ONNX model splitting tool for partitioning large models into smaller components.",
     no_args_is_help=True,
@@ -80,14 +82,14 @@ def split(
         help="Verify split model produces same outputs as original using onnxruntime.",
     ),
     verify_rtol: float = typer.Option(
-        1e-4,
+        DEFAULT_VERIFY_RTOL,
         "--verify-rtol",
-        help="Relative tolerance for verification (default: 1e-4).",
+        help=f"Relative tolerance for verification (default: {DEFAULT_VERIFY_RTOL}).",
     ),
     verify_atol: float = typer.Option(
-        1e-5,
+        DEFAULT_VERIFY_ATOL,
         "--verify-atol",
-        help="Absolute tolerance for verification (default: 1e-5).",
+        help=f"Absolute tolerance for verification (default: {DEFAULT_VERIFY_ATOL}).",
     ),
     no_simplify: bool = typer.Option(
         False,

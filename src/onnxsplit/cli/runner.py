@@ -15,6 +15,7 @@ import typer
 from onnx import ModelProto
 
 from onnxsplit.analyzer.model import ModelAnalyzer
+from onnxsplit.utils.constants import DEFAULT_VERIFY_ATOL, DEFAULT_VERIFY_RTOL
 from onnxsplit.config import ConfigError, SplitConfig, load_config, merge_cli_args
 from onnxsplit.config.merger import ConfigMergeError
 from onnxsplit.memory.auto_adjust import AutoSplitAdjuster
@@ -51,8 +52,8 @@ class RunContext:
     quiet: bool = False
     verify: bool = False
     simplify: bool = True
-    verify_rtol: float = 1e-4
-    verify_atol: float = 1e-5
+    verify_rtol: float = DEFAULT_VERIFY_RTOL
+    verify_atol: float = DEFAULT_VERIFY_ATOL
 
 
 @dataclass
