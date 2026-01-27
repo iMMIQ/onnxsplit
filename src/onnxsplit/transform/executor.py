@@ -261,8 +261,15 @@ class GraphTransformer:
         return concat_nodes
 
     def _is_weight(self, tensor_name: str) -> bool:
-        """检查张量是否是权重"""
-        return any(init.name == tensor_name for init in self.analyzer.model.graph.initializer)
+        """检查张量是否是权重（包括Constant节点产生的）"""
+        # 检查是否在initializer中
+        if any(init.name == tensor_name for init in self.analyzer.model.graph.initializer):
+            return True
+        # 检查是否由Constant节点产生
+        for node in self.analyzer.model.graph.node:
+            if node.op_type == "Constant" and tensor_name in node.output:
+                return True
+        return False
 
     def _update_graph_nodes(
         self,

@@ -112,11 +112,10 @@ class TestInputSplit:
         analyzer = ModelAnalyzer(simple_conv_model)
         transformer = GraphTransformer(analyzer)
 
-        # simple_conv模型没有initializer（权重由Constant节点生成）
-        # input不是initializer
+        # simple_conv模型中，input不是权重
         assert transformer._is_weight("input") is False
-        # weight_value也不是initializer（由Constant生成）
-        assert transformer._is_weight("weight_value") is False
+        # weight_value是由Constant节点生成的权重，应该被识别为权重
+        assert transformer._is_weight("weight_value") is True
 
         # 测试empty string
         assert transformer._is_weight("") is False
@@ -134,12 +133,14 @@ class TestInputSplit:
                     simple_conv_model.graph, node, plan
                 )
 
-                # conv_0有两个输入：input和weight_value，都不是initializer
-                # 应该为两个输入都创建split节点
-                assert len(split_nodes) == 2
+                # conv_0有两个输入：input和weight_value
+                # weight_value是由Constant节点产生的权重，不应该被split
+                # 只有input应该被split
+                assert len(split_nodes) == 1
                 assert all(n.op_type == "Split" for n in split_nodes)
                 # 检查返回的映射
-                assert len(input_split_map) == 2
+                assert "input" in input_split_map
+                assert "weight_value" not in input_split_map
                 break
 
 
