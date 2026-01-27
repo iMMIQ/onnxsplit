@@ -73,7 +73,27 @@ class GraphTransformer:
         # 插入输入切分（如果需要），并建立输入到split输出的映射
         # 检查图中是否已存在对同一输入的Split节点，避免重复创建
         input_split_map = {}  # 原始输入名 -> 切分后的输出名列表
-        if self._needs_input_split(target_node, plan_parts=plan.parts, plan_axis=plan.axis):
+
+        # 检查是否有上游切分可以复用
+        has_upstream_split_to_reuse = False
+        for input_name in target_node.input:
+            if not input_name or self._is_weight(input_name):
+                continue
+            upstream_info = self._find_upstream_split_info(
+                self.analyzer.model.graph, input_name, target_node
+            )
+            if upstream_info is not None:
+                upstream_parts, upstream_axis, _ = upstream_info
+                if upstream_parts == plan.parts and upstream_axis == plan.axis:
+                    has_upstream_split_to_reuse = True
+                    break
+
+        # 只有在没有上游切分可复用时，才检查是否需要创建新的split
+        needs_new_split = self._needs_input_split(
+            target_node, plan_parts=plan.parts, plan_axis=plan.axis
+        )
+
+        if needs_new_split or has_upstream_split_to_reuse:
             split_nodes, input_split_map = self._create_input_splits(
                 new_graph, target_node, plan
             )
@@ -498,6 +518,7 @@ class GraphTransformer:
 
         检查图中是否已存在对指定输入的Split节点，如果存在则复用，
         避免创建重复的Split节点导致SSA违规。
+        同时检测上游节点是否已被切分，如果是则复用上游切分输出。
 
         Args:
             graph: ONNX图
@@ -545,7 +566,16 @@ class GraphTransformer:
                 if is_scalar:
                     continue
 
-            # 首先检查是否存在任何使用该输入的split节点（无论axis）
+            # NEW: 首先检查上游是否已按相同配置切分
+            upstream_info = self._find_upstream_split_info(graph, input_name, node)
+            if upstream_info is not None:
+                upstream_parts, upstream_axis, split_outputs = upstream_info
+                if upstream_parts == plan.parts and upstream_axis == plan.axis:
+                    # 上游已按相同配置切分，直接复用其输出
+                    input_split_map[input_name] = split_outputs
+                    continue
+
+            # 检查是否存在任何使用该输入的split节点（无论axis）
             any_split = self._find_any_split_on_input(graph, input_name)
 
             if any_split is not None:
