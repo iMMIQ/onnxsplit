@@ -291,6 +291,26 @@ class SplitPlanner:
             if node.op_type == "Constant" and tensor_name in node.output:
                 return True
 
+        # 检查是否由DequantizeLinear或QuantizeLinear节点产生，且所有输入都是权重
+        # 这种情况通常出现在QDQ格式的量化模型中，其中权重的QDQ节点不应被视为数据流
+        producer_node = None
+        for node in self.analyzer.model.graph.node:
+            if tensor_name in node.output:
+                producer_node = node
+                break
+
+        if producer_node and producer_node.op_type in ("DequantizeLinear", "QuantizeLinear"):
+            # 检查QDQ节点的所有输入是否都是权重
+            all_inputs_are_weights = True
+            for input_name in producer_node.input:
+                if not input_name:
+                    continue
+                if not self._is_weight(input_name):
+                    all_inputs_are_weights = False
+                    break
+            if all_inputs_are_weights:
+                return True
+
         return False
 
     def _get_operator_config(self, op_name: str) -> tuple[int, Optional[int]]:

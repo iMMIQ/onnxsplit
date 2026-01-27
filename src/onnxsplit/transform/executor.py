@@ -747,6 +747,10 @@ class GraphTransformer:
         如果产生该张量的节点的所有输入都是权重/常数，
         则该节点产生常数输出，应被视为权重。
 
+        特殊处理：DequantizeLinear和QuantizeLinear节点需要区分：
+        - 如果所有输入都是权重（initializers），则输出是权重
+        - 如果有非权重输入（数据流），则输出不是权重
+
         Args:
             tensor_name: 张量名称
 
@@ -766,6 +770,19 @@ class GraphTransformer:
 
         # Constant节点已经在_is_weight中处理
         if producer_node.op_type == "Constant":
+            return True
+
+        # DequantizeLinear和QuantizeLinear节点特殊处理
+        # 检查所有输入是否都是权重（initializers）
+        if producer_node.op_type in ("DequantizeLinear", "QuantizeLinear"):
+            for input_name in producer_node.input:
+                if not input_name:
+                    continue
+                # 使用_is_direct_weight检查输入是否为权重
+                if not self._is_direct_weight(input_name):
+                    # 有非权重输入，这是数据流QDQ节点，不是权重
+                    return False
+            # 所有输入都是权重，这是权重QDQ节点
             return True
 
         # 检查所有输入是否都是权重

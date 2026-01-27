@@ -83,6 +83,13 @@ class AxisAnalyzer:
         "Identity",
     }
 
+    # QDQ nodes - they are element-wise but we don't split them directly
+    # They're treated as pass-through for splitting purposes
+    QDQ_OPS = {
+        "QuantizeLinear",
+        "DequantizeLinear",
+    }
+
     def __init__(self):
         """初始化分析器"""
         pass
@@ -97,6 +104,12 @@ class AxisAnalyzer:
             可切分轴集合
         """
         op_type = op_info.op_type
+
+        # QDQ nodes should not be split directly
+        # They are pass-through operations that handle quantization parameters
+        # Splitting them would require special handling of scale/zero_point inputs
+        if op_type in self.QDQ_OPS:
+            return SplitableAxes.empty("QDQ nodes are not split directly")
 
         # 获取输入形状（使用第一个输入）
         if not op_info.input_tensors:
