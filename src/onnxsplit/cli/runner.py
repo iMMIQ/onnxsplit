@@ -39,6 +39,7 @@ class RunContext:
         quiet: Suppress non-error output
         verify: Verify split model equivalence using onnxruntime
         simplify: Simplify model with onnxsim after splitting
+        skip_validation: Skip ONNX model validation before processing
         verify_rtol: Relative tolerance for verification
         verify_atol: Absolute tolerance for verification
     """
@@ -52,6 +53,7 @@ class RunContext:
     quiet: bool = False
     verify: bool = False
     simplify: bool = True
+    skip_validation: bool = False
     verify_rtol: float = DEFAULT_VERIFY_RTOL
     verify_atol: float = DEFAULT_VERIFY_ATOL
 
@@ -229,13 +231,16 @@ def run_split(ctx: RunContext) -> RunResult:
             typer.echo("Model loaded successfully")
 
         # Step 2: Validate model
-        if ctx.verbose:
-            typer.echo("Validating model...")
+        if not ctx.skip_validation:
+            if ctx.verbose:
+                typer.echo("Validating model...")
 
-        _validate_model(model)
+            _validate_model(model)
 
-        if ctx.verbose:
-            typer.echo("Model validation passed")
+            if ctx.verbose:
+                typer.echo("Model validation passed")
+        elif ctx.verbose:
+            typer.echo("Skipping model validation")
 
         # Step 3: Load and merge configuration
         if ctx.config_path and ctx.verbose:

@@ -96,6 +96,11 @@ def split(
         "--no-simplify",
         help="Skip model simplification with onnxsim after splitting.",
     ),
+    skip_validation: bool = typer.Option(
+        False,
+        "--skip-validation",
+        help="Skip ONNX model validation before processing.",
+    ),
 ) -> None:
     """Split an ONNX model into smaller components.
 
@@ -117,6 +122,7 @@ def split(
         quiet=options.quiet,
         verify=verify,
         simplify=not no_simplify,
+        skip_validation=skip_validation,
         verify_rtol=verify_rtol,
         verify_atol=verify_atol,
     )
