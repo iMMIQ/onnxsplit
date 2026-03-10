@@ -114,9 +114,10 @@ class GraphTransformer:
             return copy.deepcopy(self.analyzer.model)
 
         # 克隆节点，使用切分后的输入
+        # 使用 {output}_split_{i} 格式避免与图中已存在的 {output}_{i} 格式名称冲突
         cloned_nodes = []
         for i in range(plan.parts):
-            new_outputs = [f"{out}_{i}" for out in target_node.output]
+            new_outputs = [f"{out}_split_{i}" for out in target_node.output]
 
             # 构建新的输入列表
             new_inputs = []
@@ -148,7 +149,8 @@ class GraphTransformer:
         else:
             # 不需要concat，记录split outputs供下游节点复用
             for output_name in target_node.output:
-                split_outputs = [f"{output_name}_{j}" for j in range(plan.parts)]
+                # 使用 {output}_split_{i} 格式与克隆节点的输出名称保持一致
+                split_outputs = [f"{output_name}_split_{j}" for j in range(plan.parts)]
                 self._split_without_concat[output_name] = (plan.operator_name, plan.axis, split_outputs)
 
         # 更新图
@@ -349,28 +351,23 @@ class GraphTransformer:
             return (len(split_outputs), axis, split_outputs)
 
         # Case 0.5: 输入不存在于图中（因为上游split跳过了concat）
-        # 检查是否有 {input_name}_0, {input_name}_1, ... 这样的split输出存在
+        # 检查是否有 {input_name}_split_0, {input_name}_split_1, ... 这样的split输出存在
         producer = self.analyzer.get_tensor_producer(input_name)
         if producer is None:
             # 输入没有生产者，可能是上游split跳过了concat
-            # 查找所有匹配 {input_name}_N 模式的输出
+            # 查找所有匹配 {input_name}_split_N 模式的输出
             split_outputs = []
-            all_split_from_same_base = True
-            base_name = None
             for graph_node in graph.node:
                 for output_name in graph_node.output:
-                    # 检查是否是 matmul_out_0, matmul_out_1 这样的模式
-                    if output_name.startswith(input_name + "_"):
-                        parts = output_name[len(input_name) + 1:].split("_", 1)
-                        if len(parts) == 1 and parts[0].isdigit():
-                            # 是 {input_name}_{数字} 的模式
+                    # 检查是否是 matmul_out_split_0, matmul_out_split_1 这样的模式
+                    if output_name.startswith(input_name + "_split_"):
+                        suffix = output_name[len(input_name + "_split_"):]
+                        if suffix.isdigit():
                             split_outputs.append(output_name)
-                            if base_name is None:
-                                base_name = input_name
-                            elif base_name != input_name:
-                                all_split_from_same_base = False
 
-            if split_outputs and all_split_from_same_base:
+            if split_outputs:
+                # 按索引排序
+                split_outputs.sort(key=lambda x: int(x.rsplit("_", 1)[-1]))
                 # 找到了split输出，需要推断axis
                 # 检查这些输出是否来自同一个节点的克隆
                 node_names = set()
@@ -782,7 +779,8 @@ class GraphTransformer:
         concat_nodes = []
 
         for i, output_name in enumerate(node.output):
-            split_outputs = [f"{output_name}_{j}" for j in range(plan.parts)]
+            # 使用 {output}_split_{i} 格式与克隆节点的输出名称保持一致
+            split_outputs = [f"{output_name}_split_{j}" for j in range(plan.parts)]
 
             # 不传递node_name，让create_concat_node自动生成并清理名称
             concat_node = create_concat_node(
