@@ -245,3 +245,137 @@ class TestCascadingSplitOptimization:
                         f"Found intermediate Concat merging add1 outputs. "
                         f"Expected SPLIT_SOURCE strategy."
                     )
+
+
+class TestConcatSourceOptimization:
+    """Test CONCAT_SOURCE optimization (upstream more parts than downstream)"""
+
+    def test_concat_source_6_to_3_should_concat_pairs_not_all(
+        self, cascading_adds_model: onnx.ModelProto
+    ) -> None:
+        """Split add1 into 6 parts, then add2 into 3 parts.
+
+        Expected (Optimized) Behavior:
+            Since 6 % 3 == 0, each pair of add1 outputs should be concatenated.
+
+            add1 (split=6, axis=0) -> add2 (split=3, axis=0)
+
+            [add1_out_0, add1_out_1] -> Concat -> add2_0_input
+            [add1_out_2, add1_out_3] -> Concat -> add2_1_input
+            [add1_out_4, add1_out_5] -> Concat -> add2_2_input
+
+        Suboptimal (Potential Buggy) Behavior:
+            [add1_out_0, ..., add1_out_5] -> Concat -> add1_out
+            add1_out -> Split(3) -> [add2_0_input, add2_1_input, add2_2_input]
+        """
+        # Create both plans upfront
+        add1_plan = SplitPlan(operator_name="add1", parts=6, axis=0, reason="test split")
+        add2_plan = SplitPlan(operator_name="add2", parts=3, axis=0, reason="test split")
+
+        # First split: add1 with parts=6, axis=0
+        planned_splits = {"add2": add2_plan}
+        analyzer = ModelAnalyzer(cascading_adds_model)
+        transformer = GraphTransformer(analyzer, planned_splits=planned_splits)
+
+        model_after_add1_split = transformer.apply_split_plan(add1_plan)
+
+        # Second split: add2 with parts=3, axis=0
+        analyzer2 = ModelAnalyzer(model_after_add1_split)
+        transformer2 = GraphTransformer(analyzer2)
+
+        final_model = transformer2.apply_split_plan(add2_plan)
+
+        # Verify the graph structure
+        node_types = [n.op_type for n in final_model.graph.node]
+        node_names = [n.name for n in final_model.graph.node]
+
+        print("Node types:", node_types)
+        print("Node names:", node_names)
+
+        # Verify add2 split nodes
+        add2_split_nodes = [n for n in final_model.graph.node if n.name.startswith("add2_split_")]
+        assert len(add2_split_nodes) == 3, f"Expected 3 add2 split nodes, got {len(add2_split_nodes)}"
+
+        # Check for CONCAT_SOURCE pattern:
+        # Should have 3 intermediate Concat nodes (each merging 2 add1 outputs)
+        # Plus 1 final Concat for output
+        # Total: 4 Concat nodes
+
+        # Find all concat nodes
+        concat_nodes = [n for n in final_model.graph.node if n.op_type == "Concat"]
+
+        # Separate intermediate concats from final output concat
+        intermediate_concats = []
+        final_concat = None
+        for node in concat_nodes:
+            # Check if this concat produces add2 output (final concat)
+            if "add2_out" in node.output[0] and not node.output[0].startswith("add2_out_"):
+                final_concat = node
+            elif any(inp.startswith("add1_out_") for inp in node.input):
+                intermediate_concats.append(node)
+
+        print(f"Intermediate concats: {len(intermediate_concats)}")
+        for node in intermediate_concats:
+            print(f"  {node.name}: inputs={list(node.input)} outputs={list(node.output)}")
+
+        # Expected: 3 intermediate concats, each merging 2 add1 outputs
+        assert len(intermediate_concats) == 3, (
+            f"Expected 3 intermediate Concat nodes (each merging 2 add1 outputs), "
+            f"got {len(intermediate_concats)}. Nodes: {node_names}"
+        )
+
+        # Verify each intermediate concat takes exactly 2 add1 outputs
+        for i, node in enumerate(intermediate_concats):
+            add1_inputs = [inp for inp in node.input if inp.startswith("add1_out_")]
+            assert len(add1_inputs) == 2, (
+                f"Expected Concat {i} to have 2 add1 inputs, got {len(add1_inputs)}. "
+                f"Inputs: {list(node.input)}"
+            )
+
+    def test_concat_source_4_to_2_should_concat_pairs(
+        self, cascading_adds_model: onnx.ModelProto
+    ) -> None:
+        """Split add1 into 4 parts, then add2 into 2 parts.
+
+        Similar test with different ratio (4 -> 2).
+        """
+        # Create both plans upfront
+        add1_plan = SplitPlan(operator_name="add1", parts=4, axis=0, reason="test split")
+        add2_plan = SplitPlan(operator_name="add2", parts=2, axis=0, reason="test split")
+
+        # First split: add1 with parts=4, axis=0
+        planned_splits = {"add2": add2_plan}
+        analyzer = ModelAnalyzer(cascading_adds_model)
+        transformer = GraphTransformer(analyzer, planned_splits=planned_splits)
+
+        model_after_add1_split = transformer.apply_split_plan(add1_plan)
+
+        # Second split: add2 with parts=2, axis=0
+        analyzer2 = ModelAnalyzer(model_after_add1_split)
+        transformer2 = GraphTransformer(analyzer2)
+
+        final_model = transformer2.apply_split_plan(add2_plan)
+
+        # Verify the graph structure
+        node_names = [n.name for n in final_model.graph.node]
+        print("Node names:", node_names)
+
+        # Find intermediate concat nodes (merging add1 outputs)
+        concat_nodes = [n for n in final_model.graph.node if n.op_type == "Concat"]
+        intermediate_concats = [
+            n for n in concat_nodes
+            if any(inp.startswith("add1_out_") for inp in n.input)
+        ]
+
+        # Expected: 2 intermediate concats, each merging 2 add1 outputs
+        assert len(intermediate_concats) == 2, (
+            f"Expected 2 intermediate Concat nodes, got {len(intermediate_concats)}. "
+            f"Nodes: {node_names}"
+        )
+
+        # Verify each intermediate concat takes exactly 2 add1 outputs
+        for i, node in enumerate(intermediate_concats):
+            add1_inputs = [inp for inp in node.input if inp.startswith("add1_out_")]
+            assert len(add1_inputs) == 2, (
+                f"Expected Concat {i} to have 2 add1 inputs, got {len(add1_inputs)}"
+            )

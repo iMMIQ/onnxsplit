@@ -486,6 +486,9 @@ class GraphTransformer:
         Note:
             当下游消费者需要更多份数且存在整除关系时（SPLIT_SOURCE策略），
             不需要先concat再split，而是将上游每个输出直接split。
+
+            当下游消费者需要更少份数且存在整除关系时（CONCAT_SOURCE策略），
+            不需要全局concat再split，而是为每组上游输出创建局部concat。
         """
         for output_name in node.output:
             # 检查是否是模型输出
@@ -519,12 +522,17 @@ class GraphTransformer:
                     if consumer_plan.parts % current_plan.parts == 0:
                         # SPLIT_SOURCE: 每个上游输出可以split成更多份
                         continue
-                    # 其他情况（CONCAT_SOURCE或COMPLEX_REORDER），需要concat
+                    # 检查是否可以使用CONCAT_SOURCE策略
+                    # src_parts % dst_parts == 0 表示每组上游输出可以concat
+                    if current_plan.parts % consumer_plan.parts == 0:
+                        # CONCAT_SOURCE: 每组上游输出可以concat，不需要全局concat
+                        continue
+                    # 其他情况（COMPLEX_REORDER），需要concat
                     all_consumers_compatible = False
                     break
 
             if all_consumers_compatible and current_plan is not None:
-                # 所有消费者都兼容（相同配置或SPLIT_SOURCE），不需要concat
+                # 所有消费者都兼容（相同配置、SPLIT_SOURCE或CONCAT_SOURCE），不需要全局concat
                 continue
 
             return True
@@ -709,6 +717,27 @@ class GraphTransformer:
                         sub_outputs = list(sub_split_node.output)
                         all_sub_outputs.extend(sub_outputs)
                     input_split_map[input_name] = all_sub_outputs
+                    continue
+                # CONCAT_SOURCE: 下游需要更少份数，每组上游输出可以concat
+                if upstream_axis == plan.axis and upstream_parts % plan.parts == 0:
+                    # 为每组上游split输出创建局部concat节点
+                    ratio = upstream_parts // plan.parts
+                    all_concat_outputs = []
+                    for dst_idx in range(plan.parts):
+                        # 每组包含ratio个上游输出
+                        group_start = dst_idx * ratio
+                        group_end = group_start + ratio
+                        group_outputs = split_outputs[group_start:group_end]
+                        # 创建局部concat节点
+                        concat_output_name = f"{input_name}_group_{dst_idx}"
+                        concat_node = create_concat_node(
+                            input_names=group_outputs,
+                            output_name=concat_output_name,
+                            axis=plan.axis,
+                        )
+                        split_nodes.append(concat_node)
+                        all_concat_outputs.append(concat_output_name)
+                    input_split_map[input_name] = all_concat_outputs
                     continue
 
             # 检查是否存在任何使用该输入的split节点（无论axis）
