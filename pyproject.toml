@@ -6,6 +6,7 @@ readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
     "onnx>=1.20.1",
+    "onnxruntime>=1.23.2",
     "onnxsim>=0.4.34",
     "pyyaml>=6.0.3",
     "typer>=0.21.1",
@@ -44,5 +45,8 @@ python_functions = "test_* benchmark_*"
 
 [dependency-groups]
 dev = [
+    "hypothesis>=6.151.9",
+    "pytest-benchmark>=5.2.3",
+    "pytest-cov>=7.0.0",
     "pytest-xdist>=3.8.0",
 ]
