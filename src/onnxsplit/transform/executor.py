@@ -482,6 +482,10 @@ class GraphTransformer:
 
         Returns:
             True 如果需要插入Concat，False 否则
+
+        Note:
+            当下游消费者需要更多份数且存在整除关系时（SPLIT_SOURCE策略），
+            不需要先concat再split，而是将上游每个输出直接split。
         """
         for output_name in node.output:
             # 检查是否是模型输出
@@ -495,21 +499,32 @@ class GraphTransformer:
                 return True
 
             # 检查所有消费者的切分计划
-            all_consumers_split_with_same_config = True
+            all_consumers_compatible = True
             for consumer_name in consumers:
                 consumer_plan = self._planned_splits.get(consumer_name)
                 if consumer_plan is None:
                     # 消费者不在切分计划中，需要concat
-                    all_consumers_split_with_same_config = False
+                    all_consumers_compatible = False
                     break
                 if current_plan is not None:
-                    if consumer_plan.parts != current_plan.parts or consumer_plan.axis != current_plan.axis:
-                        # 消费者使用不同的切分配置，需要concat
-                        all_consumers_split_with_same_config = False
+                    if consumer_plan.axis != current_plan.axis:
+                        # 轴不同，需要concat
+                        all_consumers_compatible = False
                         break
+                    if consumer_plan.parts == current_plan.parts:
+                        # 相同配置，可以直接连接
+                        continue
+                    # 检查是否可以使用SPLIT_SOURCE策略
+                    # dst_parts % src_parts == 0 表示每个上游输出可以进一步split
+                    if consumer_plan.parts % current_plan.parts == 0:
+                        # SPLIT_SOURCE: 每个上游输出可以split成更多份
+                        continue
+                    # 其他情况（CONCAT_SOURCE或COMPLEX_REORDER），需要concat
+                    all_consumers_compatible = False
+                    break
 
-            if all_consumers_split_with_same_config and current_plan is not None:
-                # 所有消费者都使用相同的切分配置，不需要concat
+            if all_consumers_compatible and current_plan is not None:
+                # 所有消费者都兼容（相同配置或SPLIT_SOURCE），不需要concat
                 continue
 
             return True
@@ -676,6 +691,24 @@ class GraphTransformer:
                 if upstream_parts == plan.parts and upstream_axis == plan.axis:
                     # 上游已按相同配置切分，直接复用其输出
                     input_split_map[input_name] = split_outputs
+                    continue
+                # SPLIT_SOURCE: 下游需要更多份数，每个上游输出可以进一步split
+                if upstream_axis == plan.axis and plan.parts % upstream_parts == 0:
+                    # 为每个上游split输出创建额外的split节点
+                    ratio = plan.parts // upstream_parts
+                    all_sub_outputs = []
+                    for src_idx, src_output in enumerate(split_outputs):
+                        sub_split_node = create_split_node(
+                            input_name=src_output,
+                            axis=plan.axis,
+                            parts=ratio,
+                            output_prefix=f"{src_output}_sub",
+                        )
+                        split_nodes.append(sub_split_node)
+                        # 重命名输出以匹配下游期望的索引
+                        sub_outputs = list(sub_split_node.output)
+                        all_sub_outputs.extend(sub_outputs)
+                    input_split_map[input_name] = all_sub_outputs
                     continue
 
             # 检查是否存在任何使用该输入的split节点（无论axis）
