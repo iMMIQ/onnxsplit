@@ -740,6 +740,11 @@ class GraphTransformer:
                     input_split_map[input_name] = all_concat_outputs
                     continue
 
+            # 首先检查本次调用中是否已为该输入创建了Split（处理同一节点多次使用相同输入的情况）
+            if input_name in input_split_map:
+                # 已经为该输入创建了Split，复用已有的split输出
+                continue
+
             # 检查是否存在任何使用该输入的split节点（无论axis）
             any_split = self._find_any_split_on_input(graph, input_name)
 

@@ -216,3 +216,92 @@ def test_different_axis_creates_new_split():
     # 由于这个模型可能不支持axis=1的split，我们只验证逻辑
     # 实际创建新Split节点的行为在_find_existing_split中已经测试
     assert split_nodes_count_before == 1
+
+
+def create_model_with_duplicate_input():
+    """创建一个节点使用相同输入多次的模型。
+
+    这种结构模拟了一个真实场景：
+    Add节点使用同一个输入两次（如 x + x）
+    当split时，应该只为该输入创建一个Split节点。
+    """
+    input_tensor = helper.make_tensor_value_info("input", TensorProto.FLOAT, [4, 8])
+
+    # Transpose节点，输出名为 transpose_1
+    transpose = helper.make_node(
+        "Transpose",
+        inputs=["input"],
+        outputs=["transpose_1"],
+        name="Transpose_1",
+        perm=[1, 0],
+    )
+
+    # Add节点使用 transpose_1 两次
+    add = helper.make_node(
+        "Add",
+        inputs=["transpose_1", "transpose_1"],  # 同一个输入使用两次
+        outputs=["add_out"],
+        name="Add_1",
+    )
+
+    output = helper.make_tensor_value_info("add_out", TensorProto.FLOAT, [8, 4])
+
+    graph = helper.make_graph(
+        [transpose, add],
+        "test_model",
+        [input_tensor],
+        [output],
+    )
+
+    model = helper.make_model(graph, opset_imports=[helper.make_operatorsetid("", 13)])
+    return model
+
+
+def test_duplicate_input_in_single_node():
+    """测试当节点多次使用相同输入时，只创建一个Split节点。
+
+    这是修复bug的测试：当Add节点使用相同输入两次（如 x + x）时，
+    _create_input_splits不应该为同一个输入创建两个Split节点。
+    """
+    model = create_model_with_duplicate_input()
+
+    # Split Add_1
+    analyzer = ModelAnalyzer(model)
+    transformer = GraphTransformer(analyzer)
+
+    plan = SplitPlan(operator_name="Add_1", axis=0, parts=2)
+    result = transformer.apply_split_plan(plan)
+
+    # 检查没有SSA违规
+    duplicates = check_ssa_violations(result)
+    assert not duplicates, f"SSA violations found: {duplicates}"
+
+    # 检查只有一个Split节点
+    split_nodes = [
+        node for node in result.graph.node
+        if node.op_type == "Split" and node.input and node.input[0] == "transpose_1"
+    ]
+    assert len(split_nodes) == 1, f"Expected 1 Split node, found {len(split_nodes)}"
+
+    # 验证模型可以通过ONNX checker
+    onnx.checker.check_model(result)
+
+
+def test_duplicate_input_with_onnxsim():
+    """测试使用相同输入多次的节点在split后可以通过onnxsim简化。"""
+    pytest.importorskip("onnxsim")
+
+    model = create_model_with_duplicate_input()
+
+    analyzer = ModelAnalyzer(model)
+    transformer = GraphTransformer(analyzer)
+
+    plan = SplitPlan(operator_name="Add_1", axis=0, parts=2)
+    result = transformer.apply_split_plan(plan)
+
+    # 尝试使用onnxsim简化
+    import onnxsim
+    simplified, check_ok = onnxsim.simplify(result, perform_optimization=True)
+
+    assert check_ok, "onnxsim validation failed"
+    onnx.checker.check_model(simplified)
