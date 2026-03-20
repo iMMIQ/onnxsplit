@@ -10,6 +10,9 @@ Split large ONNX models by replicating operators and partitioning their inputs/o
 pip install onnxsplit
 ```
 
+This installs the published runtime dependencies declared by the package, including
+`onnx`, `onnxruntime`, `onnxsim`, `pyyaml`, and `typer`.
+
 Or with uv:
 
 ```bash
@@ -51,20 +54,20 @@ Model Analysis:
 
 ### Split a Model
 
-Split a model into multiple parts:
+Generate a transformed model plus a split report:
 
 ```bash
-# Split into 4 parts
-onnxsplit split model.onnx --parts 4 --output output_dir
+# Split into 4 parts using a config file
+onnxsplit split model.onnx --config onnxsplit.yaml --parts 4 --output output_dir
 
-# Limit memory per split (in MB)
-onnxsplit split model.onnx --max-memory 1024 --output output_dir
+# Limit memory per split (in MB) while loading config rules
+onnxsplit split model.onnx --config onnxsplit.yaml --max-memory 1024 --output output_dir
 
 # Verify output equivalence using onnxruntime (optional)
-onnxsplit split model.onnx --parts 2 --verify
+onnxsplit split model.onnx --config onnxsplit.yaml --parts 2 --verify
 
 # Verbose output
-onnxsplit split -v model.onnx --parts 2
+onnxsplit -v split model.onnx --config onnxsplit.yaml --parts 2
 ```
 
 Output:
@@ -72,44 +75,61 @@ Output:
 Model split successfully!
   Output: output_dir/split_model.onnx
   Report: output_dir/split_report.json
-  Summary: SplitReport: 5/65 operators split (7.7%), total 2 parts
+  Summary: SplitReport: 1/65 operators split (1.5%), total 2 parts
   ✓ Verification passed: 1 outputs match
 ```
 
-> **Note**: The `--verify` option requires onnxruntime. If not installed, verification will be skipped with a warning.
+> **Note**: The `--verify` option uses the package's `onnxruntime` dependency at runtime.
+> If `onnxruntime` is unavailable in the current environment, verification is skipped with a warning.
 
 ## Python API
 
 ```python
-from onnxsplit import ModelAnalyzer, SplitPlanner, GraphTransformer
+import onnx
 
-# Load and analyze model
-analyzer = ModelAnalyzer.from_path("model.onnx")
+from onnxsplit import GraphTransformer, ModelAnalyzer, SplitPlanner, verify_equivalence
+from onnxsplit.config import OperatorConfig, SplitConfig
+
+# Load the original model
+original_model = onnx.load("model.onnx")
+current_model = original_model
+
+# Analyze the current model and build a split plan
+analyzer = ModelAnalyzer.from_model_proto(current_model)
 print(f"Operators: {len(analyzer.get_operators())}")
 
-# Create split plan
-from onnxsplit.config import SplitConfig
-config = SplitConfig()
+# Create split plan configuration
+config = SplitConfig(
+    operators={
+        "conv_layer": OperatorConfig(parts=2, axis=0),
+    }
+)
+
 planner = SplitPlanner(analyzer, config)
 report = planner.generate()
 
-# Apply transformation
-transformer = GraphTransformer(analyzer)
+# Apply each split plan to the progressively transformed model
 for plan in report.plans:
-    if plan.is_split:
-        model = transformer.apply_split_plan(model)
+    if not plan.is_split:
+        continue
+
+    current_analyzer = ModelAnalyzer.from_model_proto(current_model)
+    transformer = GraphTransformer(current_analyzer)
+    current_model = transformer.apply_split_plan(plan)
+
+split_model = current_model
 
 # Save result
-import onnx
-onnx.save(model, "split_model.onnx")
+onnx.save(split_model, "split_model.onnx")
 
 # Verify equivalence (requires onnxruntime)
-from onnxsplit import verify_equivalence
-result = verify_equivalence(original_model, model)
+result = verify_equivalence(original_model, split_model)
 if result.success:
     print(f"Verification passed: {result.outputs_compared} outputs match")
 elif result.skipped:
     print(f"Verification skipped: {result.skip_reason}")
+else:
+    print(f"Verification failed: {result.failure_reason}")
 ```
 
 ## Features
@@ -135,26 +155,46 @@ elif result.skipped:
 Create a `onnxsplit.yaml` file for custom split rules:
 
 ```yaml
-global_config:
+global:
   default_parts: 2
   max_memory_mb: 1024
 
-operator_rules:
-  - op_types: [Conv, MatMul, Gemm]
+operators:
+  "/encoder/Conv_0":
+    parts: 4
     axis: 0
-    default_parts: 4
 
-  - op_types: [Add, Mul]
-    split: false
+  "/decoder/MatMul_*":
+    parts: 2
+
+axis_rules:
+  - op_type: Conv
+    prefer_axis: 0
+
+  - op_type: MatMul
+    prefer_axis: batch
+
+  - op_type: LayerNormalization
+    prefer_axis: null
 
 memory_rules:
   auto_adjust: true
+  overflow_strategy: binary_split
 ```
+
+`memory_rules.overflow_strategy` accepts `binary_split` or `linear_split` when auto-adjusting
+parts to satisfy a memory limit.
 
 ## Requirements
 
-- Python 3.9+
-- onnx >= 1.14.0
+Package/runtime requirements from `pyproject.toml`:
+
+- Python 3.13+
+- onnx >= 1.20.1
+- onnxruntime >= 1.23.2
+- onnxsim >= 0.4.34
+- pyyaml >= 6.0.3
+- typer >= 0.21.1
 
 ## License
 

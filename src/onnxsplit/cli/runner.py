@@ -294,7 +294,15 @@ def run_split(ctx: RunContext) -> RunResult:
 
             max_memory = config.global_config.max_memory_mb
             min_parts = config.global_config.default_parts
-            adjusted_plans = adjuster.adjust_report(report.plans, max_memory, min_parts)
+            overflow_strategy = (
+                config.memory_rules.overflow_strategy if config.memory_rules else None
+            )
+            adjusted_plans = adjuster.adjust_report(
+                report.plans,
+                max_memory,
+                min_parts,
+                overflow_strategy=overflow_strategy,
+            )
 
             # Update report with adjusted plans
             # Recalculate split/unsplit counts based on adjusted plans

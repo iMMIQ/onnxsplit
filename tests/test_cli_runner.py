@@ -147,6 +147,48 @@ class TestRunSplit:
         assert output_dir.exists()
         assert (output_dir / "split_model.onnx").exists()
 
+    def test_run_split_preserves_config_default_parts_without_cli_override(
+        self, simple_onnx_model: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test run_split keeps config default_parts when cli_parts is omitted."""
+        from onnxsplit.splitter.plan import SplitReport
+
+        config_path = tmp_path / "config.yaml"
+        config_path.write_text("global:\n  default_parts: 2\n")
+        output_dir = tmp_path / "output_config_default_parts"
+        captured: dict[str, object] = {}
+
+        class FakePlanner:
+            def __init__(self, analyzer, config) -> None:
+                captured["default_parts"] = config.global_config.default_parts
+
+            def generate(self) -> SplitReport:
+                return SplitReport(
+                    original_operators=1,
+                    split_operators=0,
+                    unsplit_operators=1,
+                    plans=[],
+                )
+
+            def get_warnings(self) -> list[str]:
+                return []
+
+        monkeypatch.setattr("onnxsplit.cli.runner.SplitPlanner", FakePlanner)
+
+        ctx = RunContext(
+            model_path=str(simple_onnx_model),
+            output_dir=str(output_dir),
+            config_path=str(config_path),
+            cli_parts=None,
+            simplify=False,
+        )
+
+        result = run_split(ctx)
+
+        assert result.success is True
+        assert captured["default_parts"] == 2
+        assert (output_dir / "split_model.onnx").exists()
+
     def test_run_split_with_cli_args(self, simple_onnx_model: Path, tmp_path: Path) -> None:
         """Test run_split with CLI arguments overriding config."""
         output_dir = tmp_path / "output3"
@@ -274,6 +316,82 @@ class TestRunSplit:
         data = json.loads(report_path.read_text())
         assert "original_operators" in data
         assert "split_operators" in data
+
+    def test_run_split_passes_overflow_strategy_to_adjuster(
+        self, simple_onnx_model: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test run_split forwards configured overflow_strategy to memory adjustment."""
+        from onnxsplit.splitter.plan import SplitPlan, SplitReport
+
+        config_path = tmp_path / "config_overflow_strategy.yaml"
+        config_path.write_text(
+            """
+global:
+  default_parts: 2
+  max_memory_mb: 16
+
+memory_rules:
+  auto_adjust: true
+  overflow_strategy: linear_split
+"""
+        )
+        output_dir = tmp_path / "output_overflow_strategy"
+        captured: dict[str, object] = {}
+
+        class FakePlanner:
+            def __init__(self, analyzer, config) -> None:
+                self._report = SplitReport(
+                    original_operators=1,
+                    split_operators=1,
+                    unsplit_operators=0,
+                    plans=[SplitPlan(operator_name="matmul1", parts=2, axis=0)],
+                )
+
+            def generate(self) -> SplitReport:
+                return self._report
+
+            def get_warnings(self) -> list[str]:
+                return []
+
+        class FakeAdjuster:
+            def __init__(self, estimator, max_parts: int, warn_threshold: int) -> None:
+                captured["init"] = {
+                    "max_parts": max_parts,
+                    "warn_threshold": warn_threshold,
+                }
+
+            def adjust_report(
+                self,
+                plans,
+                max_memory_mb,
+                min_parts,
+                overflow_strategy=None,
+            ):
+                captured["adjust_report"] = {
+                    "plans": plans,
+                    "max_memory_mb": max_memory_mb,
+                    "min_parts": min_parts,
+                    "overflow_strategy": overflow_strategy,
+                }
+                return plans
+
+        monkeypatch.setattr("onnxsplit.cli.runner.SplitPlanner", FakePlanner)
+        monkeypatch.setattr("onnxsplit.cli.runner.AutoSplitAdjuster", FakeAdjuster)
+
+        ctx = RunContext(
+            model_path=str(simple_onnx_model),
+            output_dir=str(output_dir),
+            config_path=str(config_path),
+            quiet=True,
+            simplify=False,
+        )
+
+        result = run_split(ctx)
+
+        assert result.success is True
+        assert captured["adjust_report"]["overflow_strategy"] == "linear_split"
+        assert captured["adjust_report"]["max_memory_mb"] == 16
+        assert captured["adjust_report"]["min_parts"] == 2
 
 
 class TestGenerateReport:

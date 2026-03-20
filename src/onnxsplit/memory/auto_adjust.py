@@ -1,8 +1,12 @@
 """自动切分调整"""
 
+from typing import Literal
+
 from onnxsplit.memory.estimator import MemoryEstimator
 from onnxsplit.splitter.axis_rules import AxisAnalyzer
 from onnxsplit.splitter.plan import SplitPlan
+
+OverflowStrategy = Literal["binary_split", "linear_split"]
 
 
 class AutoSplitAdjuster:
@@ -34,6 +38,7 @@ class AutoSplitAdjuster:
         plan: SplitPlan,
         max_memory_mb: float | None,
         min_parts: int = 1,
+        overflow_strategy: OverflowStrategy | None = None,
     ) -> SplitPlan:
         """调整切分方案
 
@@ -41,15 +46,11 @@ class AutoSplitAdjuster:
             plan: 原始切分方案
             max_memory_mb: 内存限制（MB），None表示不限制
             min_parts: 最小切分数限制（来自 CLI -p 参数）
+            overflow_strategy: 超限时的搜索策略
 
         Returns:
             调整后的切分方案
         """
-        # 修复Bug 1: 移除 `not plan.is_split` 检查
-        # 当 parts=1 时，is_split=False，但仍需要根据内存限制进行调整
-        if max_memory_mb is None and min_parts <= 1:
-            return plan
-
         # 如果 axis 为 None，无法切分
         if plan.axis is None:
             return plan
@@ -57,11 +58,6 @@ class AutoSplitAdjuster:
         # 获取算子信息
         op_info = self.estimator.analyzer.get_operator(plan.operator_name)
         if op_info is None:
-            return plan
-
-        # 获取内存信息
-        op_mem = self.estimator.get_operator_memory(op_info)
-        if op_mem is None or op_mem.total_memory_mb == 0:
             return plan
 
         # 应用最小切分数限制
@@ -93,7 +89,24 @@ class AutoSplitAdjuster:
                     parts=validated_parts,
                     axis=plan.axis,
                     slice_ranges=plan.slice_ranges,
-                    reason=f"Adjusted from {plan.parts} to {validated_parts} for min_parts constraint",
+                    reason=self._build_validation_reason(
+                        plan.parts, base_parts, validated_parts
+                    ),
+                )
+            return plan
+
+        # 获取内存信息
+        op_mem = self.estimator.get_operator_memory(op_info)
+        if op_mem is None or op_mem.total_memory_mb == 0:
+            if validated_parts != plan.parts:
+                return SplitPlan(
+                    operator_name=plan.operator_name,
+                    parts=validated_parts,
+                    axis=plan.axis,
+                    slice_ranges=plan.slice_ranges,
+                    reason=self._build_validation_reason(
+                        plan.parts, base_parts, validated_parts
+                    ),
                 )
             return plan
 
@@ -111,21 +124,21 @@ class AutoSplitAdjuster:
                 )
             return plan
 
-        # 计算需要的切分数
-        needed_parts = self._calculate_needed_parts(
-            op_mem.total_memory_mb, max_memory_mb, validated_parts
+        strategy = overflow_strategy or "binary_split"
+        search_start = validated_parts
+        if strategy == "binary_split":
+            search_start = self._calculate_needed_parts(
+                op_mem.total_memory_mb, max_memory_mb, validated_parts
+            )
+
+        final_parts = self._find_first_satisfying_parts(
+            op_info,
+            plan.axis,
+            op_mem.total_memory_mb,
+            max_memory_mb,
+            search_start,
         )
-
-        # 限制在max_parts范围内
-        final_parts = min(needed_parts, self.max_parts)
-
-        # 再次验证（因为 _calculate_needed_parts 可能返回不能整除的值）
-        final_parts = self._validate_and_adjust_parts(
-            op_info, plan.axis, final_parts
-        )
-
-        # 再次检查验证后的 parts 是否有效
-        if not self._is_parts_valid(op_info, plan.axis, final_parts):
+        if final_parts is None:
             # 无法满足内存约束，放弃切分
             return SplitPlan(
                 operator_name=plan.operator_name,
@@ -143,6 +156,43 @@ class AutoSplitAdjuster:
             slice_ranges=plan.slice_ranges,
             reason=f"Adjusted from {plan.parts} to {final_parts} for memory limit",
         )
+
+    def _find_first_satisfying_parts(
+        self,
+        op_info,
+        axis: int,
+        total_memory_mb: float,
+        max_memory_mb: float,
+        current_parts: int,
+    ) -> int | None:
+        """线性查找第一个满足内存与整除约束的切分数。"""
+        min_parts = max(current_parts, 1)
+
+        for candidate_parts in range(min_parts, self.max_parts + 1):
+            per_part = total_memory_mb / candidate_parts
+            if per_part > max_memory_mb:
+                continue
+
+            if self._is_parts_valid(op_info, axis, candidate_parts):
+                return candidate_parts
+
+        return None
+
+    def _build_validation_reason(
+        self,
+        original_parts: int,
+        base_parts: int,
+        validated_parts: int,
+    ) -> str:
+        """构建仅涉及约束校正时的说明。"""
+        reasons = []
+        if base_parts != original_parts:
+            reasons.append("min_parts constraint")
+        if validated_parts != base_parts:
+            reasons.append("dimension divisibility")
+
+        reason_text = " and ".join(reasons) if reasons else "validation"
+        return f"Adjusted from {original_parts} to {validated_parts} for {reason_text}"
 
     def _calculate_needed_parts(
         self,
@@ -292,61 +342,20 @@ class AutoSplitAdjuster:
             # 没有有效维度，使用原始值
             return parts
 
-        # 检查所有维度，找到需要调整的
-        max_adjusted_parts = parts
-        can_split = True
-        for dim_size in dim_sizes:
-            if dim_size % parts != 0:
-                # 不能整除，向上查找能整除的值
-                adjusted, found = self._find_divisible_parts(dim_size, parts, dim_size)
-                if found:
-                    max_adjusted_parts = max(max_adjusted_parts, adjusted)
-                else:
-                    # 找不到合适的切分数，标记为不可切分
-                    can_split = False
-                    break
+        search_limit = min(min(dim_sizes), self.max_parts)
+        for candidate_parts in range(parts, search_limit + 1):
+            if all(dim_size % candidate_parts == 0 for dim_size in dim_sizes):
+                return candidate_parts
 
         # 如果无法找到合适的切分数，返回原值（调用者应检查是否能整除）
-        return max_adjusted_parts if can_split else parts
-
-    def _find_divisible_parts(
-        self,
-        dim_size: int,
-        min_parts: int,
-        max_dim: int,
-    ) -> tuple[int, bool]:
-        """查找能整除维度的最小切分数
-
-        Args:
-            dim_size: 目标维度大小
-            min_parts: 最小切分数
-            max_dim: 最大维度（用于计算搜索上限）
-
-        Returns:
-            (parts, found) 元组
-            - parts: 找到的切分数（仅在 found=True 时有效）
-            - found: 是否找到能整除的切分数
-        """
-        # 如果 min_parts 已经大于维度大小，无法切分
-        if min_parts > dim_size:
-            return (min_parts, False)
-
-        # 搜索上限：min(维度大小, min_parts * 4, 256)
-        search_limit = min(max_dim, min_parts * 4, self.max_parts)
-
-        # 从 min_parts 开始向上查找
-        for p in range(min_parts, search_limit + 1):
-            if dim_size >= p and dim_size % p == 0:
-                return (p, True)
-
-        # 找不到合适的，返回原值并标记为未找到
-        return (min_parts, False)
+        return parts
 
     def adjust_report(
         self,
         plans: list[SplitPlan],
         max_memory_mb: float | None,
         min_parts: int = 1,
+        overflow_strategy: OverflowStrategy | None = None,
     ) -> list[SplitPlan]:
         """批量调整切分方案
 
@@ -354,11 +363,12 @@ class AutoSplitAdjuster:
             plans: 切分方案列表
             max_memory_mb: 内存限制
             min_parts: 最小切分数限制（来自 CLI -p 参数）
+            overflow_strategy: 超限时的搜索策略
 
         Returns:
             调整后的方案列表
         """
-        if max_memory_mb is None and min_parts <= 1:
-            return plans
-
-        return [self.adjust_plan(plan, max_memory_mb, min_parts) for plan in plans]
+        return [
+            self.adjust_plan(plan, max_memory_mb, min_parts, overflow_strategy)
+            for plan in plans
+        ]

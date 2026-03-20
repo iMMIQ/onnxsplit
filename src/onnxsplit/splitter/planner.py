@@ -45,6 +45,8 @@ class SplitPlanner:
         self.config = config if config is not None else SplitConfig()
         self.axis_analyzer = AxisAnalyzer()
         self._warnings: list[str] = []
+        self._invalid_axis_rule_warnings: set[tuple[str, str]] = set()
+        self._matched_integer_axis_rules: dict[tuple[str, int], bool] = {}
         self._splitable_ops: dict[str, tuple[OperatorInfo, SplitableAxes]] = {}
         self._compiled_patterns: list[CompiledPattern] = []
         self._exact_match_patterns: dict[str, OperatorConfig] = {}
@@ -56,6 +58,10 @@ class SplitPlanner:
         Returns:
             切分报告
         """
+        self._warnings.clear()
+        self._invalid_axis_rule_warnings.clear()
+        self._matched_integer_axis_rules.clear()
+
         # 分析所有算子的可切分性
         self._analyze_splitability()
 
@@ -72,6 +78,8 @@ class SplitPlanner:
         total_ops = len(self._splitable_ops)
         split_ops = sum(1 for p in plans if p.is_split)
         unsplit_ops = total_ops - split_ops
+
+        self._warn_never_usable_integer_axis_rules()
 
         return SplitReport(
             original_operators=total_ops,
@@ -104,15 +112,21 @@ class SplitPlanner:
         """
         # 获取该算子的配置
         parts, axis = self._get_operator_config(op_info.name)
+        candidate_axes, auto_planning_disabled = self._get_candidate_axes(
+            op_info,
+            splitable_axes,
+            axis,
+        )
+
+        if auto_planning_disabled:
+            return None
 
         # parts=1表示不切分，但仍创建方案以便 adjuster 根据内存限制调整
         if parts <= 1:
             # 创建 parts=1 的占位方案，标记为 is_split=False
             # 如果没有可切分轴，返回 None（无法调整）
-            if not splitable_axes.axes:
+            if not candidate_axes:
                 return None
-            # 选择优先级最高的轴（axis=0 或最小轴）
-            candidate_axes = sorted(splitable_axes.axes, key=lambda a: (a != 0, a))
             return SplitPlan(
                 operator_name=op_info.name,
                 parts=1,
@@ -121,24 +135,8 @@ class SplitPlanner:
             )
 
         # 检查可切分性
-        if not splitable_axes.axes:
-            # 没有可切分轴
-            return None
-
-        # 确定候选切分轴（按优先级排序）
-        candidate_axes = []
-        if axis is not None:
-            # 用户指定了轴
-            if axis in splitable_axes.axes:
-                candidate_axes = [axis]
-            else:
-                # 指定的轴不可切，尝试其他可切分轴
-                candidate_axes = sorted(splitable_axes.axes)
-        else:
-            # 自动选择轴：优先batch(axis=0)，然后按数字顺序
-            candidate_axes = sorted(splitable_axes.axes, key=lambda a: (a != 0, a))
-
         if not candidate_axes:
+            # 没有可切分轴
             return None
 
         # 尝试每个候选轴，直到找到可用的
@@ -277,6 +275,85 @@ class SplitPlanner:
         )
         return (False, None, warning)
 
+    def _get_candidate_axes(
+        self,
+        op_info: OperatorInfo,
+        splitable_axes: SplitableAxes,
+        configured_axis: Optional[int],
+    ) -> tuple[list[int], bool]:
+        """获取候选切分轴列表。
+
+        Returns:
+            (candidate_axes, auto_planning_disabled)
+        """
+        if configured_axis is not None:
+            if not splitable_axes.axes:
+                return ([], False)
+            if configured_axis in splitable_axes.axes:
+                return ([configured_axis], False)
+            return (sorted(splitable_axes.axes), False)
+
+        (
+            matched_rule,
+            preferred_axis,
+            auto_planning_disabled,
+            rule_prefer_axis,
+        ) = self._get_axis_rule_preference(op_info.op_type)
+        if matched_rule and isinstance(rule_prefer_axis, int) and preferred_axis is not None:
+            self._record_integer_axis_rule_match(
+                op_info.op_type,
+                rule_prefer_axis,
+                preferred_axis in splitable_axes.axes,
+            )
+
+        if not splitable_axes.axes:
+            return ([], auto_planning_disabled)
+
+        fallback_axes = sorted(splitable_axes.axes, key=lambda a: (a != 0, a))
+
+        if auto_planning_disabled:
+            return ([], True)
+
+        if matched_rule and preferred_axis is not None and preferred_axis in splitable_axes.axes:
+            remaining_axes = [axis for axis in fallback_axes if axis != preferred_axis]
+            return ([preferred_axis, *remaining_axes], False)
+
+        return (fallback_axes, False)
+
+    def _get_axis_rule_preference(
+        self,
+        op_type: str,
+    ) -> tuple[bool, Optional[int], bool, object]:
+        """获取算子类型的axis_rules偏好。
+
+        Returns:
+            (matched_rule, preferred_axis, auto_planning_disabled, rule_prefer_axis)
+        """
+        for rule in self.config.axis_rules:
+            if rule.op_type != op_type:
+                continue
+
+            if rule.prefer_axis is None:
+                return (True, None, True, rule.prefer_axis)
+
+            if rule.prefer_axis == "batch":
+                return (True, 0, False, rule.prefer_axis)
+
+            if isinstance(rule.prefer_axis, bool):
+                self._warn_invalid_axis_rule(op_type, rule.prefer_axis)
+                return (True, None, False, rule.prefer_axis)
+
+            if isinstance(rule.prefer_axis, int):
+                return (True, rule.prefer_axis, False, rule.prefer_axis)
+
+            if isinstance(rule.prefer_axis, str):
+                self._warn_invalid_axis_rule(op_type, rule.prefer_axis)
+                return (True, None, False, rule.prefer_axis)
+
+            return (True, None, False, rule.prefer_axis)
+
+        return (False, None, False, None)
+
     def _is_weight(self, tensor_name: str) -> bool:
         """检查张量是否是权重（常数）
 
@@ -407,3 +484,37 @@ class SplitPlanner:
             message: 警告内容
         """
         self._warnings.append(message)
+
+    def _warn_invalid_axis_rule(self, op_type: str, prefer_axis: object) -> None:
+        """为无效axis_rules配置发出一次警告。"""
+        warning_key = (op_type, repr(prefer_axis))
+        if warning_key in self._invalid_axis_rule_warnings:
+            return
+
+        self._invalid_axis_rule_warnings.add(warning_key)
+        self._add_warning(
+            f"{op_type}: unsupported axis_rules prefer_axis={prefer_axis!r} "
+            f"({type(prefer_axis).__name__}); falling back to default axis ordering"
+        )
+
+    def _record_integer_axis_rule_match(
+        self,
+        op_type: str,
+        prefer_axis: int,
+        usable: bool,
+    ) -> None:
+        """记录整数axis_rules在当前规划中的匹配和可用性。"""
+        rule_key = (op_type, prefer_axis)
+        previous_usable = self._matched_integer_axis_rules.get(rule_key, False)
+        self._matched_integer_axis_rules[rule_key] = previous_usable or usable
+
+    def _warn_never_usable_integer_axis_rules(self) -> None:
+        """为当前规划中从未可用的整数axis_rules发出一次警告。"""
+        for (op_type, prefer_axis), was_usable in self._matched_integer_axis_rules.items():
+            if was_usable:
+                continue
+            self._add_warning(
+                f"{op_type}: axis_rules prefer_axis={prefer_axis!r} "
+                "never usable for matching operators in this planning run; "
+                "falling back to default axis ordering"
+            )

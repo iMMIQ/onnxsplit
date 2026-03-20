@@ -1,5 +1,6 @@
 """CLI parser tests."""
 
+import json
 from pathlib import Path
 
 import onnx
@@ -37,6 +38,27 @@ def _create_minimal_onnx_model(path: Path) -> None:
     model.opset_import[0].version = 18
 
     # Save the model
+    onnx.save(model, str(path))
+
+
+def _create_matmul_onnx_model(path: Path) -> None:
+    """Create a small MatMul model whose split plan can be config-driven."""
+    input_tensor = helper.make_tensor_value_info("input", onnx.TensorProto.FLOAT, [4, 8, 10])
+    output_tensor = helper.make_tensor_value_info("output", onnx.TensorProto.FLOAT, [4, 8, 6])
+
+    weight_data = [0.1] * (4 * 10 * 6)
+    weight = helper.make_tensor("weight", onnx.TensorProto.FLOAT, [4, 10, 6], weight_data)
+
+    node = helper.make_node("MatMul", inputs=["input", "weight"], outputs=["output"], name="matmul1")
+    graph = helper.make_graph(
+        [node],
+        "config_driven_test_model",
+        [input_tensor],
+        [output_tensor],
+        [weight],
+    )
+
+    model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", 13)])
     onnx.save(model, str(path))
 
 
@@ -157,6 +179,75 @@ def test_split_command_help():
     assert result.exit_code == 0
     assert "parts" in result.stdout.lower()
     assert "max-memory" in result.stdout.lower()
+
+
+def test_split_command_help_shows_config():
+    """Test split help lists the config option."""
+    result = runner.invoke(app, ["split", "--help"])
+    assert result.exit_code == 0
+    assert "--config" in result.stdout
+
+
+def test_split_command_with_config_affects_generated_report():
+    """Test split command uses --config to change the actual split plan."""
+    with runner.isolated_filesystem():
+        model_path = Path("model.onnx")
+        _create_matmul_onnx_model(model_path)
+
+        config_path = Path("config.yaml")
+        config_path.write_text(
+            "global:\n"
+            "  default_parts: 1\n"
+            "\n"
+            "operators:\n"
+            "  matmul1:\n"
+            "    parts: 2\n"
+            "    axis: 0\n"
+        )
+
+        baseline_output_dir = Path("baseline_output")
+        baseline_result = runner.invoke(
+            app,
+            [
+                "split",
+                "model.onnx",
+                "--output",
+                "baseline_output",
+                "--no-simplify",
+            ],
+        )
+
+        assert baseline_result.exit_code == 0
+        baseline_report = json.loads((baseline_output_dir / "split_report.json").read_text())
+        assert baseline_report["split_operators"] == 0
+        assert baseline_report["total_parts"] == 0
+
+        output_dir = Path("config_output")
+        config_result = runner.invoke(
+            app,
+            [
+                "split",
+                "model.onnx",
+                "--config",
+                "config.yaml",
+                "--output",
+                "config_output",
+                "--no-simplify",
+            ],
+        )
+
+        assert config_result.exit_code == 0
+        assert (output_dir / "split_model.onnx").exists()
+        report_path = output_dir / "split_report.json"
+        assert report_path.exists()
+
+        report = json.loads(report_path.read_text())
+        assert report["split_operators"] == 1
+        assert report["total_parts"] == 2
+
+        plans_by_name = {plan["operator_name"]: plan for plan in report["plans"]}
+        assert plans_by_name["matmul1"]["parts"] == 2
+        assert plans_by_name["matmul1"]["axis"] == 0
 
 
 def test_analyze_command_help():

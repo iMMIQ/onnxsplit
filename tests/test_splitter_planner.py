@@ -5,8 +5,64 @@ from pathlib import Path
 from onnx import TensorProto
 
 from onnxsplit.analyzer import ModelAnalyzer
-from onnxsplit.config import GlobalConfig, OperatorConfig, SplitConfig
+from onnxsplit.config import AxisRule, GlobalConfig, OperatorConfig, SplitConfig
 from onnxsplit.splitter.planner import SplitPlanner
+
+
+def _make_single_node_analyzer(op_type: str, input_shape: list[int], name: str):
+    import onnx
+    from onnx import helper
+
+    input_tensor = helper.make_tensor_value_info("input", TensorProto.FLOAT, input_shape)
+    output_tensor = helper.make_tensor_value_info("output", TensorProto.FLOAT, input_shape)
+    node = helper.make_node(op_type, ["input"], ["output"], name=name)
+    graph = helper.make_graph([node], "test", [input_tensor], [output_tensor])
+    model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", 13)])
+    model = onnx.shape_inference.infer_shapes(model)
+    return ModelAnalyzer.from_model_proto(model)
+
+
+def _make_linear_chain_analyzer(op_types: list[str], input_shape: list[int]):
+    import onnx
+    from onnx import helper
+
+    input_tensor = helper.make_tensor_value_info("input", TensorProto.FLOAT, input_shape)
+    nodes = []
+    previous_output = "input"
+
+    for index, op_type in enumerate(op_types):
+        output_name = f"output_{index}"
+        nodes.append(
+            helper.make_node(op_type, [previous_output], [output_name], name=f"{op_type.lower()}_{index}")
+        )
+        previous_output = output_name
+
+    output_tensor = helper.make_tensor_value_info(previous_output, TensorProto.FLOAT, input_shape)
+    graph = helper.make_graph(nodes, "test", [input_tensor], [output_tensor])
+    model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", 13)])
+    model = onnx.shape_inference.infer_shapes(model)
+    return ModelAnalyzer.from_model_proto(model)
+
+
+def _make_independent_nodes_analyzer(node_specs: list[tuple[str, str, list[int]]]):
+    import onnx
+    from onnx import helper
+
+    inputs = []
+    outputs = []
+    nodes = []
+
+    for index, (op_type, name, shape) in enumerate(node_specs):
+        input_name = f"input_{index}"
+        output_name = f"output_{index}"
+        inputs.append(helper.make_tensor_value_info(input_name, TensorProto.FLOAT, shape))
+        outputs.append(helper.make_tensor_value_info(output_name, TensorProto.FLOAT, shape))
+        nodes.append(helper.make_node(op_type, [input_name], [output_name], name=name))
+
+    graph = helper.make_graph(nodes, "test", inputs, outputs)
+    model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", 13)])
+    model = onnx.shape_inference.infer_shapes(model)
+    return ModelAnalyzer.from_model_proto(model)
 
 
 def test_planner_with_no_config():
@@ -99,6 +155,235 @@ def test_planner_with_axis_override():
 
     conv_plan = report.get_plan("conv_0")
     assert conv_plan.axis == 0
+
+
+def test_planner_axis_rules_prefer_type_level_axis_when_operator_has_no_explicit_axis():
+    """测试未显式指定axis时使用类型级axis_rules优先级"""
+    analyzer = _make_single_node_analyzer("Relu", [4, 6, 8], "relu_0")
+    config = SplitConfig(
+        global_config=GlobalConfig(default_parts=2),
+        axis_rules=[
+            AxisRule(op_type="Relu", prefer_axis=2),
+            AxisRule(op_type="Relu", prefer_axis=1),
+        ],
+    )
+
+    planner = SplitPlanner(analyzer, config)
+    report = planner.generate()
+
+    relu_plan = report.get_plan("relu_0")
+    assert relu_plan is not None
+    assert relu_plan.axis == 2
+
+
+def test_planner_operator_axis_overrides_axis_rules():
+    """测试算子显式axis优先于axis_rules"""
+    analyzer = _make_single_node_analyzer("Relu", [4, 6, 8], "relu_0")
+    config = SplitConfig(
+        global_config=GlobalConfig(default_parts=2),
+        operators={
+            "relu_0": OperatorConfig(parts=2, axis=0),
+        },
+        axis_rules=[
+            AxisRule(op_type="Relu", prefer_axis=2),
+        ],
+    )
+
+    planner = SplitPlanner(analyzer, config)
+    report = planner.generate()
+
+    relu_plan = report.get_plan("relu_0")
+    assert relu_plan is not None
+    assert relu_plan.axis == 0
+
+
+def test_planner_axis_rules_none_disables_automatic_planning():
+    """测试prefer_axis为None时禁用该类型的自动规划"""
+    analyzer = _make_single_node_analyzer("Relu", [4, 6, 8], "relu_0")
+    config = SplitConfig(
+        global_config=GlobalConfig(default_parts=2),
+        axis_rules=[
+            AxisRule(op_type="Relu", prefer_axis=None),
+        ],
+    )
+
+    planner = SplitPlanner(analyzer, config)
+    report = planner.generate()
+
+    assert report.get_plan("relu_0") is None
+
+
+def test_planner_axis_rules_batch_alias_maps_to_axis_zero():
+    """测试prefer_axis='batch'会映射到axis 0"""
+    analyzer = _make_single_node_analyzer("Relu", [4, 6, 8], "relu_0")
+    config = SplitConfig(
+        global_config=GlobalConfig(default_parts=2),
+        axis_rules=[
+            AxisRule(op_type="Relu", prefer_axis="batch"),
+        ],
+    )
+
+    planner = SplitPlanner(analyzer, config)
+    report = planner.generate()
+
+    relu_plan = report.get_plan("relu_0")
+    assert relu_plan is not None
+    assert relu_plan.axis == 0
+
+
+def test_planner_axis_rules_none_still_allows_explicit_operator_axis():
+    """测试prefer_axis为None时显式算子axis仍然生效"""
+    analyzer = _make_single_node_analyzer("Relu", [4, 6, 8], "relu_0")
+    config = SplitConfig(
+        global_config=GlobalConfig(default_parts=2),
+        operators={
+            "relu_0": OperatorConfig(parts=2, axis=2),
+        },
+        axis_rules=[
+            AxisRule(op_type="Relu", prefer_axis=None),
+        ],
+    )
+
+    planner = SplitPlanner(analyzer, config)
+    report = planner.generate()
+
+    relu_plan = report.get_plan("relu_0")
+    assert relu_plan is not None
+    assert relu_plan.axis == 2
+
+
+def test_planner_axis_rules_bool_preference_warns_and_falls_back():
+    """测试布尔prefer_axis会告警并安全回退"""
+    analyzer = _make_single_node_analyzer("Relu", [4, 6, 8], "relu_0")
+    config = SplitConfig(
+        global_config=GlobalConfig(default_parts=2),
+        axis_rules=[
+            AxisRule(op_type="Relu", prefer_axis=True),
+        ],
+    )
+
+    planner = SplitPlanner(analyzer, config)
+    report = planner.generate()
+
+    relu_plan = report.get_plan("relu_0")
+    assert relu_plan is not None
+    assert relu_plan.axis == 0
+    warnings = planner.get_warnings()
+    assert len(warnings) == 1
+    assert "Relu" in warnings[0]
+    assert "bool" in warnings[0]
+
+
+def test_planner_axis_rules_unsupported_string_warns_once_and_falls_back():
+    """测试不支持的字符串prefer_axis只告警一次并安全回退"""
+    analyzer = _make_linear_chain_analyzer(["Relu", "Relu"], [4, 6, 8])
+    config = SplitConfig(
+        global_config=GlobalConfig(default_parts=2),
+        axis_rules=[
+            AxisRule(op_type="Relu", prefer_axis="channels"),
+        ],
+    )
+
+    planner = SplitPlanner(analyzer, config)
+    report = planner.generate()
+
+    for operator_name in ["relu_0", "relu_1"]:
+        relu_plan = report.get_plan(operator_name)
+        assert relu_plan is not None
+        assert relu_plan.axis == 0
+
+    warnings = planner.get_warnings()
+    assert len(warnings) == 1
+    assert "Relu" in warnings[0]
+    assert "channels" in warnings[0]
+
+
+def test_planner_axis_rules_valid_integer_does_not_warn_when_usable_for_any_match():
+    """测试整数prefer_axis只要对某个匹配算子可用就不告警"""
+    analyzer = _make_independent_nodes_analyzer(
+        [
+            ("Relu", "relu_rank3", [4, 6, 8]),
+            ("Relu", "relu_rank2", [4, 6]),
+        ]
+    )
+    config = SplitConfig(
+        global_config=GlobalConfig(default_parts=2),
+        axis_rules=[
+            AxisRule(op_type="Relu", prefer_axis=2),
+        ],
+    )
+
+    planner = SplitPlanner(analyzer, config)
+    report = planner.generate()
+
+    relu_rank3_plan = report.get_plan("relu_rank3")
+    assert relu_rank3_plan is not None
+    assert relu_rank3_plan.axis == 2
+
+    relu_rank2_plan = report.get_plan("relu_rank2")
+    assert relu_rank2_plan is not None
+    assert relu_rank2_plan.axis == 0
+
+    assert planner.get_warnings() == []
+
+
+def test_planner_axis_rules_integer_warns_once_when_never_usable_in_model():
+    """测试整数prefer_axis在当前模型中从未可用时只告警一次并回退"""
+    analyzer = _make_independent_nodes_analyzer(
+        [
+            ("Relu", "relu_0", [4, 6]),
+            ("Relu", "relu_1", [8, 10]),
+        ]
+    )
+    config = SplitConfig(
+        global_config=GlobalConfig(default_parts=2),
+        axis_rules=[
+            AxisRule(op_type="Relu", prefer_axis=2),
+        ],
+    )
+
+    planner = SplitPlanner(analyzer, config)
+    report = planner.generate()
+
+    for operator_name in ["relu_0", "relu_1"]:
+        relu_plan = report.get_plan(operator_name)
+        assert relu_plan is not None
+        assert relu_plan.axis == 0
+
+    warnings = planner.get_warnings()
+    assert len(warnings) == 1
+    assert "Relu" in warnings[0]
+    assert "2" in warnings[0]
+    assert "never usable" in warnings[0]
+    assert "unsupported" not in warnings[0]
+
+
+def test_planner_axis_rules_integer_warning_is_scoped_per_generate_run():
+    """测试整数prefer_axis不可用告警按每次generate单独产生"""
+    analyzer = _make_independent_nodes_analyzer(
+        [
+            ("Relu", "relu_0", [4, 6]),
+            ("Relu", "relu_1", [8, 10]),
+        ]
+    )
+    config = SplitConfig(
+        global_config=GlobalConfig(default_parts=2),
+        axis_rules=[
+            AxisRule(op_type="Relu", prefer_axis=2),
+        ],
+    )
+
+    planner = SplitPlanner(analyzer, config)
+
+    planner.generate()
+    first_run_warnings = planner.get_warnings()
+    assert len(first_run_warnings) == 1
+    assert "never usable" in first_run_warnings[0]
+
+    planner.generate()
+    second_run_warnings = planner.get_warnings()
+    assert len(second_run_warnings) == 1
+    assert second_run_warnings == first_run_warnings
 
 
 def test_planner_respects_splitable_axes():

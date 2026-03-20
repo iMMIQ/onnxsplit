@@ -58,8 +58,14 @@ def split(
         help="Path to the ONNX model file to split.",
         exists=True,
     ),
-    parts: int = typer.Option(
-        1,
+    config: Optional[str] = typer.Option(
+        None,
+        "--config",
+        "-c",
+        help="Path to the configuration YAML file describing split behavior.",
+    ),
+    parts: Optional[int] = typer.Option(
+        None,
         "--parts",
         "-p",
         help="Number of parts to split the model into.",
@@ -115,7 +121,7 @@ def split(
     run_ctx = RunContext(
         model_path=model_path,
         output_dir=output or options.output or "output",
-        config_path=None,
+        config_path=config,
         cli_parts=parts,
         cli_max_memory=max_memory,
         verbose=options.verbose,

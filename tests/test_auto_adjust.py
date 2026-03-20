@@ -1,6 +1,7 @@
 """测试自动切分调整"""
 
 from pathlib import Path
+from types import SimpleNamespace
 
 from onnxsplit.analyzer import ModelAnalyzer
 from onnxsplit.memory.auto_adjust import AutoSplitAdjuster
@@ -75,7 +76,7 @@ def test_adjuster_max_parts_limit():
 
 
 def test_adjuster_with_large_parts():
-    """测试处理大切分数"""
+    """测试无法验证的大切分数回退为不切分"""
     model_path = Path("tests/fixtures/models/simple_conv.onnx")
     analyzer = ModelAnalyzer.from_path(model_path)
     estimator = MemoryEstimator(analyzer)
@@ -83,9 +84,9 @@ def test_adjuster_with_large_parts():
 
     plan = SplitPlan(operator_name="conv_0", parts=100, axis=0)
 
-    # 大切分数应该被警告或限制
+    # 无法满足整除约束时应回退为不切分
     adjusted = adjuster.adjust_plan(plan, max_memory_mb=None)
-    assert adjusted.parts == 100
+    assert adjusted.parts == 1
 
 
 def test_adjuster_unsplitable():
@@ -190,3 +191,113 @@ def test_adjuster_report_adjustment():
     # 如果发生了调整
     if adjusted.parts != original_parts:
         assert adjusted.reason is not None
+
+
+def _make_fake_adjuster(total_memory_mb: float) -> AutoSplitAdjuster:
+    """Create an adjuster with a fake operator that exposes strategy differences."""
+
+    op_info = SimpleNamespace(
+        input_tensors=[
+            SimpleNamespace(name="input_a", shape=[45]),
+            SimpleNamespace(name="input_b", shape=[60]),
+        ]
+    )
+    analyzer = SimpleNamespace(
+        get_operator=lambda _name: op_info,
+        model=SimpleNamespace(
+            graph=SimpleNamespace(
+                initializer=[],
+                node=[],
+            )
+        ),
+    )
+    estimator = SimpleNamespace(
+        analyzer=analyzer,
+        get_operator_memory=lambda _op_info: SimpleNamespace(total_memory_mb=total_memory_mb),
+    )
+    return AutoSplitAdjuster(estimator)
+
+
+def test_adjuster_linear_strategy_returns_first_valid_upward_candidate():
+    """测试线性策略返回第一个满足约束且可整除的候选值"""
+    adjuster = _make_fake_adjuster(total_memory_mb=70.0)
+
+    adjusted = adjuster.adjust_plan(
+        SplitPlan(operator_name="fake_op", parts=1, axis=0),
+        max_memory_mb=10.0,
+        overflow_strategy="linear_split",
+    )
+
+    assert adjusted.parts == 15
+
+
+def test_adjuster_defaults_to_binary_strategy_when_not_configured(monkeypatch):
+    """测试未配置策略时会先使用二分下界再向上搜索"""
+    adjuster = _make_fake_adjuster(total_memory_mb=70.0)
+    binary_lower_bound_calls = []
+
+    def fake_calculate_needed_parts(
+        total_memory_mb: float,
+        max_memory_mb: float,
+        current_parts: int,
+    ) -> int:
+        binary_lower_bound_calls.append(
+            (total_memory_mb, max_memory_mb, current_parts)
+        )
+        return 14
+
+    monkeypatch.setattr(
+        adjuster,
+        "_calculate_needed_parts",
+        fake_calculate_needed_parts,
+    )
+
+    adjusted = adjuster.adjust_plan(
+        SplitPlan(operator_name="fake_op", parts=1, axis=0),
+        max_memory_mb=10.0,
+    )
+
+    assert adjusted.parts == 15
+    assert binary_lower_bound_calls == [(70.0, 10.0, 1)]
+
+
+def test_adjuster_linear_strategy_skips_binary_lower_bound(monkeypatch):
+    """测试线性策略不会调用二分下界辅助逻辑"""
+    adjuster = _make_fake_adjuster(total_memory_mb=70.0)
+
+    def fail_if_called(*_args, **_kwargs):
+        raise AssertionError("_calculate_needed_parts should not be used for linear strategy")
+
+    monkeypatch.setattr(adjuster, "_calculate_needed_parts", fail_if_called)
+
+    adjusted = adjuster.adjust_plan(
+        SplitPlan(operator_name="fake_op", parts=1, axis=0),
+        max_memory_mb=10.0,
+        overflow_strategy="linear_split",
+    )
+
+    assert adjusted.parts == 15
+
+
+def test_adjuster_without_memory_limit_still_validates_divisibility():
+    """测试无内存限制时仍会修正不可整除的切分数"""
+    adjuster = _make_fake_adjuster(total_memory_mb=70.0)
+
+    adjusted = adjuster.adjust_plan(
+        SplitPlan(operator_name="fake_op", parts=7, axis=0),
+        max_memory_mb=None,
+    )
+
+    assert adjusted.parts == 15
+
+
+def test_adjust_report_without_memory_limit_still_validates_divisibility():
+    """测试批量调整在无内存限制时仍会修正不可整除的切分数"""
+    adjuster = _make_fake_adjuster(total_memory_mb=70.0)
+
+    adjusted_plans = adjuster.adjust_report(
+        [SplitPlan(operator_name="fake_op", parts=7, axis=0)],
+        max_memory_mb=None,
+    )
+
+    assert adjusted_plans[0].parts == 15
